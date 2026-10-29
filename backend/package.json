@@ -2,17 +2,20 @@
   "name": "women-skill-portal-backend",
   "version": "1.0.0",
   "description": "Backend REST API for Women Skill Development & Employment Portal",
-  "main": "src/server.js",
+  "main": "dist/server.js",
   "scripts": {
-    "start": "node src/server.js",
-    "dev": "nodemon src/server.js",
-    "db:init": "node src/config/initDb.js"
+    "start": "node dist/server.js",
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "db:init": "tsx src/config/initDb.ts"
   },
   "keywords": [
     "express",
     "postgresql",
     "supabase",
     "rest-api",
+    "typescript",
+    "tsx",
     "dbms-project"
   ],
   "author": "",
@@ -28,6 +31,14 @@
     "pg": "^8.11.5"
   },
   "devDependencies": {
-    "nodemon": "^3.1.0"
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/jsonwebtoken": "^9.0.6",
+    "@types/node": "^20.12.12",
+    "@types/pg": "^8.11.6",
+    "nodemon": "^3.1.0",
+    "tsx": "^4.10.5",
+    "typescript": "^5.4.5"
   }
 }
