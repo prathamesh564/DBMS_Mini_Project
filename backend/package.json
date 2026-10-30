@@ -7,7 +7,9 @@
     "start": "node dist/server.js",
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
-    "db:init": "tsx src/config/initDb.ts"
+    "db:init": "tsx src/config/initDb.ts",
+    "db:migrate": "tsx src/config/migrate.ts",
+    "db:seed": "tsx src/config/seed.ts"
   },
   "keywords": [
     "express",
