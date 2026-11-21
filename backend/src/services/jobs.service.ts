@@ -6,7 +6,7 @@ export interface GetAllJobsParams {
   location?: string;
   employmentType?: string;
   status?: string;
-  employerId?: number | string;
+  companyName?: string;
   limit?: number | string;
   offset?: number | string;
 }
@@ -14,7 +14,9 @@ export interface GetAllJobsParams {
 export interface CreateJobParams {
   jobTitle: string;
   jobDescription: string;
+  companyName: string;
   salary?: number | string;
+  location?: string;
   jobLocation?: string;
   employmentType?: EmploymentType;
   deadline?: string | null;
@@ -24,7 +26,9 @@ export interface CreateJobParams {
 export interface UpdateJobParams {
   jobTitle?: string;
   jobDescription?: string;
+  companyName?: string;
   salary?: number | string;
+  location?: string;
   jobLocation?: string;
   employmentType?: EmploymentType;
   deadline?: string | null;
@@ -39,7 +43,7 @@ export const getAllJobs = async ({
   location,
   employmentType,
   status = 'Open',
-  employerId,
+  companyName,
   limit = 20,
   offset = 0,
 }: GetAllJobsParams): Promise<any> => {
@@ -53,8 +57,9 @@ export const getAllJobs = async ({
   }
 
   if (location) {
-    conditions.push(`jp.job_location ILIKE $${idx++}`);
+    conditions.push(`(jp.location ILIKE $${idx} OR jp.job_location ILIKE $${idx})`);
     params.push(`%${location}%`);
+    idx++;
   }
 
   if (employmentType) {
@@ -62,13 +67,13 @@ export const getAllJobs = async ({
     params.push(employmentType);
   }
 
-  if (employerId) {
-    conditions.push(`jp.employer_id = $${idx++}`);
-    params.push(parseInt(String(employerId), 10));
+  if (companyName) {
+    conditions.push(`jp.company_name ILIKE $${idx++}`);
+    params.push(`%${companyName}%`);
   }
 
   if (search) {
-    conditions.push(`(jp.job_title ILIKE $${idx} OR jp.job_description ILIKE $${idx} OR emp.company_name ILIKE $${idx})`);
+    conditions.push(`(jp.job_title ILIKE $${idx} OR jp.job_description ILIKE $${idx} OR jp.company_name ILIKE $${idx})`);
     params.push(`%${search}%`);
     idx++;
   }
@@ -81,15 +86,16 @@ export const getAllJobs = async ({
   const offsetIdx = idx++;
 
   const sql = `
-    SELECT jp.job_id, jp.employer_id, jp.job_title, jp.job_description, jp.salary,
-           jp.job_location, jp.employment_type, jp.posted_date, jp.deadline, jp.status,
-           emp.company_name, emp.industry, emp.email AS employer_email, emp.phone AS employer_phone,
+    SELECT jp.job_id, jp.job_title, jp.job_description, jp.salary,
+           COALESCE(jp.location, jp.job_location) AS location,
+           COALESCE(jp.location, jp.job_location) AS job_location,
+           jp.employment_type, jp.posted_date, jp.deadline, jp.status,
+           jp.company_name, jp.posted_by,
            COUNT(ja.application_id) AS applications_count
     FROM women_skill_portal.job_postings jp
-    JOIN women_skill_portal.employers emp ON jp.employer_id = emp.employer_id
     LEFT JOIN women_skill_portal.job_applications ja ON jp.job_id = ja.job_id
     ${whereClause}
-    GROUP BY jp.job_id, emp.company_name, emp.industry, emp.email, emp.phone
+    GROUP BY jp.job_id
     ORDER BY jp.posted_date DESC, jp.job_id DESC
     LIMIT $${limitIdx} OFFSET $${offsetIdx};
   `;
@@ -97,7 +103,6 @@ export const getAllJobs = async ({
   const countSql = `
     SELECT COUNT(*) AS total
     FROM women_skill_portal.job_postings jp
-    JOIN women_skill_portal.employers emp ON jp.employer_id = emp.employer_id
     ${whereClause};
   `;
 
@@ -119,14 +124,16 @@ export const getAllJobs = async ({
  */
 export const getJobById = async (jobId: number): Promise<any> => {
   const sql = `
-    SELECT jp.*, emp.company_name, emp.industry, emp.email AS employer_email,
-           emp.phone AS employer_phone, emp.address AS employer_address, emp.website AS employer_website,
+    SELECT jp.job_id, jp.job_title, jp.job_description, jp.salary,
+           COALESCE(jp.location, jp.job_location) AS location,
+           COALESCE(jp.location, jp.job_location) AS job_location,
+           jp.employment_type, jp.posted_date, jp.deadline, jp.status,
+           jp.company_name, jp.posted_by,
            COUNT(ja.application_id) AS total_applicants
     FROM women_skill_portal.job_postings jp
-    JOIN women_skill_portal.employers emp ON jp.employer_id = emp.employer_id
     LEFT JOIN women_skill_portal.job_applications ja ON jp.job_id = ja.job_id
     WHERE jp.job_id = $1
-    GROUP BY jp.job_id, emp.company_name, emp.industry, emp.email, emp.phone, emp.address, emp.website;
+    GROUP BY jp.job_id;
   `;
 
   const res = await query(sql, [jobId]);
@@ -138,26 +145,31 @@ export const getJobById = async (jobId: number): Promise<any> => {
 };
 
 /**
- * Publish a new job
+ * Publish a new job (Admin only)
  */
 export const createJob = async (
-  employerId: number,
-  { jobTitle, jobDescription, salary, jobLocation, employmentType, deadline, status }: CreateJobParams
+  userId: number,
+  { jobTitle, jobDescription, companyName, salary, location, jobLocation, employmentType, deadline, status }: CreateJobParams
 ): Promise<any> => {
+  const finalLocation = location || jobLocation || 'Remote';
+
   const res = await query<JobPosting>(
     `INSERT INTO women_skill_portal.job_postings
-      (employer_id, job_title, job_description, salary, job_location, employment_type, deadline, status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      (job_title, job_description, company_name, salary, location, job_location, employment_type, deadline, status, posted_by, user_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      RETURNING *`,
     [
-      employerId,
       jobTitle.trim(),
       jobDescription.trim(),
+      companyName?.trim() || 'EmpowerHer Partner',
       salary !== undefined && salary !== null ? parseFloat(String(salary)) : null,
-      jobLocation || 'Remote',
+      finalLocation,
+      finalLocation,
       employmentType || 'Full-Time',
       deadline || null,
       status || 'Open',
+      userId,
+      userId,
     ]
   );
 
@@ -165,19 +177,13 @@ export const createJob = async (
 };
 
 /**
- * Update an existing job
+ * Update an existing job (Admin only)
  */
 export const updateJob = async (
   jobId: number,
-  employerId: number | null | undefined,
-  role: UserRole | undefined,
   updates: UpdateJobParams
 ): Promise<any> => {
-  const current = await getJobById(jobId);
-
-  if (role !== 'admin' && current.employer_id !== employerId) {
-    throw new Error('Forbidden: You can only update job vacancies published by your company.');
-  }
+  await getJobById(jobId);
 
   const fields: string[] = [];
   const params: any[] = [];
@@ -191,13 +197,20 @@ export const updateJob = async (
     fields.push(`job_description = $${idx++}`);
     params.push(updates.jobDescription.trim());
   }
+  if (updates.companyName) {
+    fields.push(`company_name = $${idx++}`);
+    params.push(updates.companyName.trim());
+  }
   if (updates.salary !== undefined) {
     fields.push(`salary = $${idx++}`);
-    params.push(parseFloat(String(updates.salary)));
+    params.push(updates.salary ? parseFloat(String(updates.salary)) : null);
   }
-  if (updates.jobLocation !== undefined) {
+  const finalLocation = updates.location || updates.jobLocation;
+  if (finalLocation !== undefined) {
+    fields.push(`location = $${idx++}`);
+    params.push(finalLocation);
     fields.push(`job_location = $${idx++}`);
-    params.push(updates.jobLocation);
+    params.push(finalLocation);
   }
   if (updates.employmentType) {
     fields.push(`employment_type = $${idx++}`);
@@ -213,7 +226,7 @@ export const updateJob = async (
   }
 
   if (fields.length === 0) {
-    return current;
+    return getJobById(jobId);
   }
 
   fields.push(`updated_at = CURRENT_TIMESTAMP`);
@@ -231,7 +244,16 @@ export const updateJob = async (
 };
 
 /**
- * Apply for a job
+ * Delete a job (Admin only)
+ */
+export const deleteJob = async (jobId: number): Promise<boolean> => {
+  await getJobById(jobId);
+  await query(`DELETE FROM women_skill_portal.job_postings WHERE job_id = $1`, [jobId]);
+  return true;
+};
+
+/**
+ * Apply for a job (Woman only)
  */
 export const applyForJob = async (womanId: number, jobId: number, coverNote?: string): Promise<any> => {
   // 1. Check job status
@@ -263,27 +285,17 @@ export const applyForJob = async (womanId: number, jobId: number, coverNote?: st
 };
 
 /**
- * Get applications for a specific job (for employer or admin)
+ * Get applications for a specific job (Admin only)
  */
-export const getJobApplications = async (
-  jobId: number,
-  employerId: number | null | undefined,
-  role: UserRole | undefined
-): Promise<any[]> => {
-  const job = await getJobById(jobId);
-
-  if (role !== 'admin' && job.employer_id !== employerId) {
-    throw new Error('Forbidden: You can only review applications for jobs posted by your company.');
-  }
+export const getJobApplications = async (jobId: number): Promise<any[]> => {
+  await getJobById(jobId);
 
   const sql = `
     SELECT ja.application_id, ja.job_id, ja.application_date, ja.application_status, ja.cover_note,
            w.woman_id, w.full_name, w.email AS woman_email, w.phone AS woman_phone,
-           w.education_level, w.address,
-           i.interview_id, i.interview_date, i.interview_mode, i.interview_status
+           w.education_level, w.address
     FROM women_skill_portal.job_applications ja
     JOIN women_skill_portal.women w ON ja.woman_id = w.woman_id
-    LEFT JOIN women_skill_portal.interviews i ON ja.application_id = i.application_id
     WHERE ja.job_id = $1
     ORDER BY ja.application_date DESC;
   `;

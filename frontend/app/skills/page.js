@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import { api, getStoredUser } from '../../services/api';
 import Sidebar from '../../components/Sidebar';
-import StatusBadge from '../../components/StatusBadge';
 
 export default function SkillsPage() {
   const [user, setUser] = useState(null);
@@ -15,6 +14,12 @@ export default function SkillsPage() {
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [feedback, setFeedback] = useState(null);
+
+  // New Skill Creation State (for Admin / Training Provider)
+  const [newSkillName, setNewSkillName] = useState('');
+  const [newSkillCategory, setNewSkillCategory] = useState('Software Development');
+  const [newSkillDesc, setNewSkillDesc] = useState('');
+  const [isCreatingSkill, setIsCreatingSkill] = useState(false);
 
   useEffect(() => {
     setUser(getStoredUser());
@@ -29,36 +34,22 @@ export default function SkillsPage() {
 
         if (profileRes.status === 'fulfilled' && profileRes.value?.data?.skills) {
           setCandidateSkills(profileRes.value.data.skills);
-        } else {
-          // Default initial skills
-          setCandidateSkills([
-            { skill_id: 1, skill_name: 'React.js', category: 'Frontend', proficiency_level: 'Advanced' },
-            { skill_id: 2, skill_name: 'JavaScript / TypeScript', category: 'Language', proficiency_level: 'Advanced' },
-            { skill_id: 3, skill_name: 'PostgreSQL & SQL', category: 'Database', proficiency_level: 'Intermediate' },
-            { skill_id: 4, skill_name: 'Next.js App Router', category: 'Framework', proficiency_level: 'Intermediate' },
-            { skill_id: 5, skill_name: 'Tailwind CSS', category: 'Styling', proficiency_level: 'Expert' },
-          ]);
         }
 
         if (catalogRes.status === 'fulfilled' && catalogRes.value?.data?.length > 0) {
           setAllSkillsCatalog(catalogRes.value.data);
           setSelectedSkillId(catalogRes.value.data[0]?.skill_id || '');
         } else {
-          // Fallback catalog
           const defaultCatalog = [
-            { skill_id: 1, skill_name: 'React.js', category: 'Frontend' },
-            { skill_id: 2, skill_name: 'JavaScript / TypeScript', category: 'Language' },
-            { skill_id: 3, skill_name: 'PostgreSQL & SQL', category: 'Database' },
-            { skill_id: 4, skill_name: 'Next.js App Router', category: 'Framework' },
-            { skill_id: 5, skill_name: 'Tailwind CSS', category: 'Styling' },
-            { skill_id: 6, skill_name: 'Node.js & Express', category: 'Backend' },
-            { skill_id: 7, skill_name: 'Python & Pandas', category: 'Data' },
-            { skill_id: 8, skill_name: 'Figma & UI Prototyping', category: 'Design' },
-            { skill_id: 9, skill_name: 'AWS Cloud Services', category: 'Cloud' },
-            { skill_id: 10, skill_name: 'Docker & Containers', category: 'DevOps' },
+            { skill_id: 1, skill_name: 'Python Programming', category: 'Information Technology' },
+            { skill_id: 2, skill_name: 'Web Development (React & Node.js)', category: 'Software Development' },
+            { skill_id: 3, skill_name: 'Data Analysis with SQL & Excel', category: 'Data Science' },
+            { skill_id: 4, skill_name: 'UI/UX Design with Figma', category: 'Creative & Design' },
+            { skill_id: 5, skill_name: 'Digital Marketing & SEO', category: 'Business & Marketing' },
+            { skill_id: 6, skill_name: 'Financial Accounting', category: 'Finance' },
           ];
           setAllSkillsCatalog(defaultCatalog);
-          setSelectedSkillId('6');
+          setSelectedSkillId('1');
         }
       } catch (err) {
         console.error('Error loading skills:', err);
@@ -90,19 +81,9 @@ export default function SkillsPage() {
           { ...skillObj, proficiency_level: proficiency },
         ]);
       }
-      setFeedback({ type: 'success', text: 'Skill added to your verified profile!' });
+      setFeedback({ type: 'success', text: 'Skill added to your candidate profile!' });
     } catch (err) {
-      // Local fallback representation if backend record existed or was created
-      const skillObj = allSkillsCatalog.find((s) => String(s.skill_id) === String(selectedSkillId));
-      if (skillObj) {
-        setCandidateSkills((prev) => [
-          ...prev.filter((s) => String(s.skill_id) !== String(selectedSkillId)),
-          { ...skillObj, proficiency_level: proficiency },
-        ]);
-        setFeedback({ type: 'success', text: 'Skill saved to candidate profile!' });
-      } else {
-        setFeedback({ type: 'error', text: err.message || 'Could not add skill.' });
-      }
+      setFeedback({ type: 'error', text: err.message || 'Could not add skill.' });
     } finally {
       setIsSubmitting(false);
     }
@@ -114,10 +95,39 @@ export default function SkillsPage() {
       setCandidateSkills((prev) => prev.filter((s) => String(s.skill_id) !== String(skillId)));
       setFeedback({ type: 'success', text: 'Skill removed from profile.' });
     } catch (err) {
-      setCandidateSkills((prev) => prev.filter((s) => String(s.skill_id) !== String(skillId)));
-      setFeedback({ type: 'success', text: 'Skill removed.' });
+      setFeedback({ type: 'error', text: err.message || 'Failed to remove skill.' });
     }
   };
+
+  const handleCreateTaxonomySkill = async (e) => {
+    e.preventDefault();
+    if (!newSkillName.trim()) return;
+    setIsCreatingSkill(true);
+    setFeedback(null);
+
+    try {
+      const res = await api.skills.create({
+        skillName: newSkillName.trim(),
+        category: newSkillCategory,
+        description: newSkillDesc.trim() || undefined,
+      });
+
+      if (res.data) {
+        setAllSkillsCatalog((prev) => [...prev, res.data]);
+        setSelectedSkillId(res.data.skill_id);
+      }
+      setNewSkillName('');
+      setNewSkillDesc('');
+      setFeedback({ type: 'success', text: 'New skill registered into master taxonomy!' });
+    } catch (err) {
+      setFeedback({ type: 'error', text: err.message || 'Failed to create skill.' });
+    } finally {
+      setIsCreatingSkill(false);
+    }
+  };
+
+  const isCandidate = !user || user.role === 'woman';
+  const canManageTaxonomy = user?.role === 'admin' || user?.role === 'training_provider';
 
   return (
     <div className="min-h-screen bg-surface flex">
@@ -142,10 +152,10 @@ export default function SkillsPage() {
               Technical Competencies
             </span>
             <h1 className="font-headline-lg font-bold text-on-surface tracking-tight">
-              Verified Skills & Proficiencies
+              Skills Taxonomy & Proficiency Records
             </h1>
             <p className="text-body-md text-on-surface-variant leading-relaxed">
-              Showcase your programming languages, database architectures, and engineering frameworks to matching employer job algorithms.
+              Showcase technical expertise, map course learning outcomes, and maintain verified skill credentials.
             </p>
           </div>
 
@@ -164,101 +174,185 @@ export default function SkillsPage() {
             </div>
           )}
 
-          {/* Add Skill Form Card */}
-          <div className="p-6 sm:p-8 rounded-2xl bg-surface-container-lowest shadow-sm border border-outline-variant/15 space-y-5">
-            <h3 className="font-headline-sm font-bold text-on-surface flex items-center gap-2">
-              <span className="material-symbols-outlined text-primary text-[22px]">add_circle</span>
-              <span>Add New Skill to Profile</span>
-            </h3>
-
-            <form onSubmit={handleAddSkill} className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-end">
-              <div className="sm:col-span-6">
-                <label className="block text-label-md font-medium text-on-surface mb-1.5">Select Skill</label>
-                <select
-                  value={selectedSkillId}
-                  onChange={(e) => setSelectedSkillId(e.target.value)}
-                  className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-on-surface text-body-md border border-outline-variant/30 focus:border-primary outline-none"
-                >
-                  {allSkillsCatalog.map((s) => (
-                    <option key={s.skill_id} value={s.skill_id}>
-                      {s.skill_name} ({s.category || 'General'})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="sm:col-span-4">
-                <label className="block text-label-md font-medium text-on-surface mb-1.5">Proficiency Level</label>
-                <select
-                  value={proficiency}
-                  onChange={(e) => setProficiency(e.target.value)}
-                  className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-on-surface text-body-md border border-outline-variant/30 focus:border-primary outline-none"
-                >
-                  <option value="Beginner">Beginner (1-6 months)</option>
-                  <option value="Intermediate">Intermediate (1-2 years)</option>
-                  <option value="Advanced">Advanced (3+ years)</option>
-                  <option value="Expert">Expert (Lead / Production)</option>
-                </select>
-              </div>
-
-              <div className="sm:col-span-2">
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="w-full h-11 rounded-xl bg-primary text-on-primary font-label-lg font-bold shadow-xs hover:bg-primary-container transition-all flex items-center justify-center gap-1.5 disabled:opacity-60"
-                >
-                  {isSubmitting ? (
-                    <span className="material-symbols-outlined text-[18px] animate-spin">refresh</span>
-                  ) : (
-                    <>
-                      <span className="material-symbols-outlined text-[18px]">add</span>
-                      <span>Add</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </form>
-          </div>
-
-          {/* Current Skills Table / Card Grid */}
-          <div className="p-6 sm:p-8 rounded-2xl bg-surface-container-lowest shadow-sm border border-outline-variant/15 space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-outline-variant/10">
-              <h3 className="font-headline-sm font-bold text-on-surface">
-                Active Skills Portfolio ({candidateSkills.length})
+          {/* Section 1: Candidate Add Skill to Profile (Woman role) */}
+          {isCandidate && (
+            <div className="p-6 sm:p-8 rounded-2xl bg-surface-container-lowest shadow-sm border border-outline-variant/15 space-y-5">
+              <h3 className="font-headline-sm font-bold text-on-surface flex items-center gap-2">
+                <span className="material-symbols-outlined text-primary text-[22px]">add_circle</span>
+                <span>Add Skill to My Profile</span>
               </h3>
-              <span className="text-label-sm text-tertiary font-semibold flex items-center gap-1">
-                <span className="material-symbols-outlined text-[16px]">verified</span>
-                Ready for Recruiter Validation
-              </span>
-            </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 pt-2">
-              {candidateSkills.map((skill) => (
-                <div
-                  key={skill.skill_id}
-                  className="p-4 rounded-xl bg-surface-container-low border border-outline-variant/15 flex items-center justify-between hover:shadow-xs transition-shadow"
-                >
-                  <div className="space-y-1 min-w-0">
-                    <h4 className="font-label-lg font-bold text-on-surface truncate">
-                      {skill.skill_name}
-                    </h4>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] text-on-surface-variant font-medium">
-                        {skill.category || 'Competency'}
-                      </span>
-                      <span>•</span>
-                      <span className="text-[11px] font-bold text-primary">
-                        {skill.proficiency_level || 'Intermediate'}
-                      </span>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => handleRemoveSkill(skill.skill_id)}
-                    title="Remove Skill"
-                    className="p-1.5 rounded-lg text-on-surface-variant hover:text-error hover:bg-error-container/20 transition-colors"
+              <form onSubmit={handleAddSkill} className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-end">
+                <div className="sm:col-span-6">
+                  <label className="block text-label-md font-medium text-on-surface mb-1.5">Select Skill</label>
+                  <select
+                    value={selectedSkillId}
+                    onChange={(e) => setSelectedSkillId(e.target.value)}
+                    className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-on-surface text-body-md border border-outline-variant/30 focus:border-primary outline-none"
                   >
-                    <span className="material-symbols-outlined text-[18px]">delete</span>
+                    {allSkillsCatalog.map((s) => (
+                      <option key={s.skill_id} value={s.skill_id}>
+                        {s.skill_name} ({s.category || 'General'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="sm:col-span-4">
+                  <label className="block text-label-md font-medium text-on-surface mb-1.5">Proficiency Level</label>
+                  <select
+                    value={proficiency}
+                    onChange={(e) => setProficiency(e.target.value)}
+                    className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-on-surface text-body-md border border-outline-variant/30 focus:border-primary outline-none"
+                  >
+                    <option value="Beginner">Beginner (1-6 months)</option>
+                    <option value="Intermediate">Intermediate (1-2 years)</option>
+                    <option value="Advanced">Advanced (3+ years)</option>
+                    <option value="Expert">Expert (Lead / Production)</option>
+                  </select>
+                </div>
+
+                <div className="sm:col-span-2">
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="w-full h-11 rounded-xl bg-primary text-on-primary font-label-lg font-bold shadow-xs hover:bg-primary-container transition-all flex items-center justify-center gap-1.5 disabled:opacity-60"
+                  >
+                    {isSubmitting ? (
+                      <span className="material-symbols-outlined text-[18px] animate-spin">refresh</span>
+                    ) : (
+                      <>
+                        <span className="material-symbols-outlined text-[18px]">add</span>
+                        <span>Add</span>
+                      </>
+                    )}
                   </button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {/* Section 2: Candidate's Current Skills */}
+          {isCandidate && (
+            <div className="p-6 sm:p-8 rounded-2xl bg-surface-container-lowest shadow-sm border border-outline-variant/15 space-y-4">
+              <div className="flex items-center justify-between pb-2 border-b border-outline-variant/10">
+                <h3 className="font-headline-sm font-bold text-on-surface">
+                  My Active Skills Portfolio ({candidateSkills.length})
+                </h3>
+                <span className="text-label-sm text-tertiary font-semibold flex items-center gap-1">
+                  <span className="material-symbols-outlined text-[16px]">verified</span>
+                  Verified Profile Skills
+                </span>
+              </div>
+
+              {candidateSkills.length === 0 ? (
+                <p className="text-body-sm text-on-surface-variant py-4">No skills added yet. Select a skill above to enrich your profile.</p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 pt-2">
+                  {candidateSkills.map((skill) => (
+                    <div
+                      key={skill.skill_id}
+                      className="p-4 rounded-xl bg-surface-container-low border border-outline-variant/15 flex items-center justify-between hover:shadow-xs transition-shadow"
+                    >
+                      <div className="space-y-1 min-w-0">
+                        <h4 className="font-label-lg font-bold text-on-surface truncate">
+                          {skill.skill_name}
+                        </h4>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] text-on-surface-variant font-medium">
+                            {skill.category || 'Competency'}
+                          </span>
+                          <span>•</span>
+                          <span className="text-[11px] font-bold text-primary">
+                            {skill.proficiency_level || 'Intermediate'}
+                          </span>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleRemoveSkill(skill.skill_id)}
+                        title="Remove Skill"
+                        className="p-1.5 rounded-lg text-on-surface-variant hover:text-error hover:bg-error-container/20 transition-colors"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">delete</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Section 3: Master Skill Taxonomy (Admin & Training Provider authoring) */}
+          {canManageTaxonomy && (
+            <div className="p-6 sm:p-8 rounded-2xl bg-surface-container-lowest shadow-sm border border-outline-variant/15 space-y-5">
+              <h3 className="font-headline-sm font-bold text-on-surface flex items-center gap-2">
+                <span className="material-symbols-outlined text-primary text-[22px]">psychology</span>
+                <span>Register New Skill in Master Taxonomy</span>
+              </h3>
+
+              <form onSubmit={handleCreateTaxonomySkill} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-label-md font-medium text-on-surface mb-1">Skill Name</label>
+                    <input
+                      type="text"
+                      required
+                      value={newSkillName}
+                      onChange={(e) => setNewSkillName(e.target.value)}
+                      placeholder="e.g. Next.js App Router"
+                      className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-on-surface text-body-md border border-outline-variant/30 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-label-md font-medium text-on-surface mb-1">Category</label>
+                    <input
+                      type="text"
+                      required
+                      value={newSkillCategory}
+                      onChange={(e) => setNewSkillCategory(e.target.value)}
+                      placeholder="e.g. Software Development"
+                      className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-on-surface text-body-md border border-outline-variant/30 outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-label-md font-medium text-on-surface mb-1">Description (Optional)</label>
+                  <input
+                    type="text"
+                    value={newSkillDesc}
+                    onChange={(e) => setNewSkillDesc(e.target.value)}
+                    placeholder="Brief description of skills, frameworks, and key topics"
+                    className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-on-surface text-body-md border border-outline-variant/30 outline-none"
+                  />
+                </div>
+
+                <div className="flex justify-end">
+                  <button
+                    type="submit"
+                    disabled={isCreatingSkill}
+                    className="px-5 py-2.5 rounded-xl bg-primary text-on-primary font-semibold text-sm hover:bg-primary-container transition disabled:opacity-50"
+                  >
+                    {isCreatingSkill ? 'Saving...' : 'Create Skill'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {/* Section 4: Browse Full Master Catalog */}
+          <div className="p-6 sm:p-8 rounded-2xl bg-surface-container-lowest shadow-sm border border-outline-variant/15 space-y-4">
+            <h3 className="font-headline-sm font-bold text-on-surface">
+              Platform Skill Taxonomy ({allSkillsCatalog.length} Skills Available)
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {allSkillsCatalog.map((s) => (
+                <div key={s.skill_id} className="p-3.5 rounded-xl bg-surface-container-low border border-outline-variant/10">
+                  <div className="font-semibold text-on-surface text-sm">{s.skill_name}</div>
+                  <div className="text-xs text-primary font-medium mt-0.5">{s.category || 'General'}</div>
+                  {s.description && (
+                    <div className="text-[12px] text-on-surface-variant mt-1 line-clamp-1">{s.description}</div>
+                  )}
                 </div>
               ))}
             </div>

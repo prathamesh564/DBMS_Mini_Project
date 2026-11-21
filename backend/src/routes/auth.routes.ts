@@ -5,12 +5,12 @@ import { validateBody, validateEmail, validateEnum } from '../middleware/validat
 
 const router = Router();
 
-// POST /api/v1/auth/register
+// POST /api/v1/auth/register (public registration strictly supports 'woman' and 'training_provider')
 router.post(
   '/register',
   validateBody(['email', 'password', 'role']),
   validateEmail('email'),
-  validateEnum('role', ['woman', 'training_provider', 'employer', 'admin']),
+  validateEnum('role', ['woman', 'training_provider']),
   authController.register
 );
 

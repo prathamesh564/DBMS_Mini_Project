@@ -4,18 +4,14 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-// Import Routes
+// Import Routes for the 8 Core Tables & 3 User Roles
 import authRoutes from './routes/auth.routes';
 import womenRoutes from './routes/women.routes';
 import skillsRoutes from './routes/skills.routes';
 import trainingRoutes from './routes/training.routes';
 import enrollmentRoutes from './routes/enrollment.routes';
-import employersRoutes from './routes/employers.routes';
 import jobsRoutes from './routes/jobs.routes';
 import applicationsRoutes from './routes/applications.routes';
-import interviewsRoutes from './routes/interviews.routes';
-import certificationsRoutes from './routes/certifications.routes';
-import employmentRoutes from './routes/employment.routes';
 import adminRoutes from './routes/admin.routes';
 
 const app = express();
@@ -28,7 +24,6 @@ const allowedOrigins = process.env.CORS_ORIGIN
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps, curl, Postman)
       if (!origin || allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
         return callback(null, true);
       }
@@ -55,16 +50,18 @@ app.get('/api/v1/health', (req: Request, res: Response) => {
     success: true,
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    service: 'Women Skill Development & Employment Portal API',
+    service: 'EmpowerHer Skills Portal API (Simplified 8-Table Architecture)',
   });
 });
 
 // Root Welcome Endpoint
 app.get('/', (req: Request, res: Response) => {
   res.status(200).json({
-    message: 'Welcome to Women Skill Development & Employment Portal Backend API',
+    message: 'Welcome to EmpowerHer Skills Portal API',
     docs: '/api/v1/health',
-    version: '1.0.0',
+    version: '2.0.0',
+    tables: 8,
+    roles: ['woman', 'training_provider', 'admin'],
   });
 });
 
@@ -74,12 +71,8 @@ app.use('/api/v1/women', womenRoutes);
 app.use('/api/v1/skills', skillsRoutes);
 app.use('/api/v1/training', trainingRoutes);
 app.use('/api/v1/enrollments', enrollmentRoutes);
-app.use('/api/v1/employers', employersRoutes);
 app.use('/api/v1/jobs', jobsRoutes);
 app.use('/api/v1/applications', applicationsRoutes);
-app.use('/api/v1/interviews', interviewsRoutes);
-app.use('/api/v1/certifications', certificationsRoutes);
-app.use('/api/v1/employment', employmentRoutes);
 app.use('/api/v1/admin', adminRoutes);
 
 // 404 Route Handler
@@ -99,27 +92,25 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
 
   // Specific PostgreSQL error code handling
   if (err.code === '23505') {
-    // Unique violation
     return res.status(409).json({
       success: false,
-      message: 'Conflict: A record with this unique identifier or key already exists.',
+      message: 'Conflict: A record with this unique attribute already exists.',
       detail: err.detail,
     });
   }
 
   if (err.code === '23503') {
-    // Foreign key violation
     return res.status(400).json({
       success: false,
-      message: 'Referential integrity violation: Referenced record does not exist or has active dependencies.',
+      message: 'Foreign key constraint violation: referenced entity does not exist.',
       detail: err.detail,
     });
   }
 
-  return res.status(statusCode).json({
+  res.status(statusCode).json({
     success: false,
     message,
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack }),
+    ...(process.env.NODE_ENV === 'development' ? { stack: err.stack } : {}),
   });
 });
 

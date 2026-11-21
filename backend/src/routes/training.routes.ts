@@ -33,6 +33,15 @@ router.put(
   trainingController.updateProgram
 );
 
+// DELETE /api/v1/training/programs/:id - Delete a program (training_provider, admin)
+router.delete(
+  '/programs/:id',
+  authenticate,
+  authorize('training_provider', 'admin'),
+  validateIntParam('id'),
+  trainingController.deleteProgram
+);
+
 // POST /api/v1/training/programs/:id/enroll - Enroll in a program (woman)
 router.post(
   '/programs/:id/enroll',

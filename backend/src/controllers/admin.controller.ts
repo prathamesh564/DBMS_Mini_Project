@@ -3,8 +3,7 @@ import { query } from '../config/database';
 import { DashboardStatistics } from '../types';
 
 /**
- * Retrieve authorized dashboard statistics
- * Implements FR-09: Statistics calculated from database queries without stored duplicate values
+ * Retrieve authorized dashboard statistics across the 8 Core Database Tables
  */
 export const getStatistics = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -14,13 +13,11 @@ export const getStatistics = async (req: Request, res: Response, next: NextFunct
         (SELECT COUNT(*) FROM women_skill_portal.skills) AS total_skills,
         (SELECT COUNT(*) FROM women_skill_portal.training_programs) AS total_training_programs,
         (SELECT COUNT(*) FROM women_skill_portal.enrollments) AS total_enrollments,
-        (SELECT COUNT(*) FROM women_skill_portal.employers) AS total_employers,
         (SELECT COUNT(*) FROM women_skill_portal.job_postings WHERE status = 'Open') AS total_open_jobs,
         (SELECT COUNT(*) FROM women_skill_portal.job_postings) AS total_jobs_all,
         (SELECT COUNT(*) FROM women_skill_portal.job_applications) AS total_applications,
-        (SELECT COUNT(*) FROM women_skill_portal.interviews) AS total_interviews,
-        (SELECT COUNT(*) FROM women_skill_portal.certifications) AS total_certifications,
-        (SELECT COUNT(*) FROM women_skill_portal.employment_records) AS total_placements;
+        (SELECT COUNT(*) FROM women_skill_portal.user_profiles) AS total_users,
+        (SELECT COUNT(*) FROM women_skill_portal.user_profiles WHERE role = 'training_provider') AS total_training_providers;
     `;
 
     const result = await query(statsSql);
@@ -31,13 +28,11 @@ export const getStatistics = async (req: Request, res: Response, next: NextFunct
       totalSkills: parseInt(row.total_skills, 10),
       totalTrainingPrograms: parseInt(row.total_training_programs, 10),
       totalEnrollments: parseInt(row.total_enrollments, 10),
-      totalEmployers: parseInt(row.total_employers, 10),
       totalOpenJobs: parseInt(row.total_open_jobs, 10),
       totalJobsAll: parseInt(row.total_jobs_all, 10),
       totalApplications: parseInt(row.total_applications, 10),
-      totalInterviews: parseInt(row.total_interviews, 10),
-      totalCertifications: parseInt(row.total_certifications, 10),
-      totalPlacements: parseInt(row.total_placements, 10),
+      totalUsers: parseInt(row.total_users, 10),
+      totalTrainingProviders: parseInt(row.total_training_providers, 10),
     };
 
     res.status(200).json({
@@ -55,12 +50,12 @@ export const getStatistics = async (req: Request, res: Response, next: NextFunct
  */
 export const listUsers = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { role, limit = 50, offset = 0 } = req.query;
+    const { role, limit = 100, offset = 0 } = req.query;
     const conditions: string[] = [];
     const params: any[] = [];
     let idx = 1;
 
-    if (role) {
+    if (role && role !== 'all') {
       conditions.push(`role = $${idx++}`);
       params.push(role);
     }
@@ -87,12 +82,19 @@ export const listUsers = async (req: Request, res: Response, next: NextFunction)
 };
 
 /**
- * Update user role (admin only)
+ * Update user role (admin only - strictly supports 3 roles)
  */
 export const updateUserRole = async (req: Request, res: Response, next: NextFunction): Promise<void | Response> => {
   try {
     const userId = parseInt(req.params.id, 10);
     const { role } = req.body;
+
+    if (!['woman', 'training_provider', 'admin'].includes(role)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid role. Role must be one of: 'woman', 'training_provider', 'admin'.",
+      });
+    }
 
     const result = await query(
       `UPDATE women_skill_portal.user_profiles
@@ -106,7 +108,11 @@ export const updateUserRole = async (req: Request, res: Response, next: NextFunc
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
 
-    res.status(200).json({ success: true, message: 'User role updated successfully.', data: result.rows[0] });
+    res.status(200).json({
+      success: true,
+      message: 'User role updated successfully.',
+      data: result.rows[0],
+    });
   } catch (err) {
     next(err);
   }

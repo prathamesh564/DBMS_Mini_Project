@@ -7,6 +7,7 @@ export interface UpdateWomanProfileParams {
   educationLevel?: string;
   address?: string;
   bio?: string;
+  resumeUrl?: string;
 }
 
 export interface GetAllWomenParams {
@@ -23,12 +24,12 @@ export interface AddSkillParams {
 }
 
 /**
- * Get woman profile with associated skills, enrollments, certifications, and application count
+ * Get woman profile with associated skills, enrollments, and application count
  */
 export const getWomanProfileById = async (womanId: number): Promise<any> => {
   // 1. Base profile
   const womanRes = await query(
-    `SELECT woman_id, user_id, full_name, email, phone, education_level, address, bio, created_at, updated_at
+    `SELECT woman_id, user_id, full_name, email, phone, education_level, address, bio, resume_url, created_at, updated_at
      FROM women_skill_portal.women
      WHERE woman_id = $1`,
     [womanId]
@@ -52,34 +53,22 @@ export const getWomanProfileById = async (womanId: number): Promise<any> => {
 
   // 3. Fetch training enrollments
   const enrollmentsRes = await query(
-    `SELECT e.enrollment_id, e.program_id, e.enrollment_date, e.completion_status, e.completion_date, e.score,
-            tp.program_name, tp.duration_weeks, prov.provider_name
+    `SELECT e.enrollment_id, e.program_id, e.enrollment_date, e.completion_status, e.completion_date,
+            COALESCE(e.assessment_score, e.score) AS score,
+            tp.program_name, tp.duration_weeks, tp.provider_name
      FROM women_skill_portal.enrollments e
      JOIN women_skill_portal.training_programs tp ON e.program_id = tp.program_id
-     JOIN women_skill_portal.training_providers prov ON tp.provider_id = prov.provider_id
      WHERE e.woman_id = $1
      ORDER BY e.enrollment_date DESC`,
     [womanId]
   );
 
-  // 4. Fetch certifications
-  const certsRes = await query(
-    `SELECT c.certification_id, c.certificate_name, c.certificate_number, c.issue_date,
-            tp.program_name
-     FROM women_skill_portal.certifications c
-     JOIN women_skill_portal.training_programs tp ON c.program_id = tp.program_id
-     WHERE c.woman_id = $1
-     ORDER BY c.issue_date DESC`,
-    [womanId]
-  );
-
-  // 5. Fetch job applications count & recent applications
+  // 4. Fetch job applications & recent applications
   const appsRes = await query(
     `SELECT ja.application_id, ja.application_date, ja.application_status,
-            jp.job_id, jp.job_title, emp.company_name
+            jp.job_id, jp.job_title, jp.company_name
      FROM women_skill_portal.job_applications ja
      JOIN women_skill_portal.job_postings jp ON ja.job_id = jp.job_id
-     JOIN women_skill_portal.employers emp ON jp.employer_id = emp.employer_id
      WHERE ja.woman_id = $1
      ORDER BY ja.application_date DESC
      LIMIT 5`,
@@ -90,7 +79,6 @@ export const getWomanProfileById = async (womanId: number): Promise<any> => {
     ...woman,
     skills: skillsRes.rows,
     enrollments: enrollmentsRes.rows,
-    certifications: certsRes.rows,
     recentApplications: appsRes.rows,
   };
 };
@@ -114,7 +102,7 @@ export const getWomanByUserId = async (userId: number): Promise<any> => {
  */
 export const updateWomanProfile = async (
   womanId: number,
-  { fullName, phone, educationLevel, address, bio }: UpdateWomanProfileParams
+  { fullName, phone, educationLevel, address, bio, resumeUrl }: UpdateWomanProfileParams
 ): Promise<any> => {
   const fields: string[] = [];
   const params: any[] = [];
@@ -140,6 +128,10 @@ export const updateWomanProfile = async (
     fields.push(`bio = $${idx++}`);
     params.push(bio);
   }
+  if (resumeUrl !== undefined) {
+    fields.push(`resume_url = $${idx++}`);
+    params.push(resumeUrl);
+  }
 
   if (fields.length === 0) {
     return getWomanProfileById(womanId);
@@ -164,9 +156,9 @@ export const updateWomanProfile = async (
 };
 
 /**
- * List all registered women (for employers or admin)
+ * List all registered women candidates (for training providers or admin)
  */
-export const getAllWomen = async ({ limit = 20, offset = 0, educationLevel, search }: GetAllWomenParams): Promise<any> => {
+export const getAllWomen = async ({ limit = 50, offset = 0, educationLevel, search }: GetAllWomenParams): Promise<any> => {
   const conditions: string[] = [];
   const params: any[] = [];
   let idx = 1;
@@ -190,12 +182,14 @@ export const getAllWomen = async ({ limit = 20, offset = 0, educationLevel, sear
   const offsetIdx = idx++;
 
   const listSql = `
-    SELECT w.woman_id, w.full_name, w.email, w.phone, w.education_level, w.address, w.created_at,
+    SELECT w.woman_id, w.full_name, w.email, w.phone, w.education_level, w.address, w.resume_url, w.created_at,
            COUNT(DISTINCT ws.skill_id) AS total_skills,
-           COUNT(DISTINCT c.certification_id) AS total_certifications
+           COUNT(DISTINCT e.enrollment_id) AS total_enrollments,
+           COUNT(DISTINCT ja.application_id) AS total_applications
     FROM women_skill_portal.women w
     LEFT JOIN women_skill_portal.women_skills ws ON w.woman_id = ws.woman_id
-    LEFT JOIN women_skill_portal.certifications c ON w.woman_id = c.woman_id
+    LEFT JOIN women_skill_portal.enrollments e ON w.woman_id = e.woman_id
+    LEFT JOIN women_skill_portal.job_applications ja ON w.woman_id = ja.woman_id
     ${whereClause}
     GROUP BY w.woman_id
     ORDER BY w.created_at DESC

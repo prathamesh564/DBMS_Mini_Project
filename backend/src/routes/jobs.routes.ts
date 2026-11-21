@@ -9,28 +9,37 @@ const router = Router();
 // GET /api/v1/jobs - List job postings (public)
 router.get('/', jobsController.listJobs);
 
-// GET /api/v1/jobs/:id - View job details
+// GET /api/v1/jobs/:id - View job details (public)
 router.get('/:id', validateIntParam('id'), jobsController.getJob);
 
-// POST /api/v1/jobs - Publish a job (employer, admin)
+// POST /api/v1/jobs - Publish a job (Admin only per PRD simplification)
 router.post(
   '/',
   authenticate,
-  authorize('employer', 'admin'),
-  validateBody(['jobTitle', 'jobDescription']),
+  authorize('admin'),
+  validateBody(['jobTitle', 'jobDescription', 'companyName']),
   jobsController.createJob
 );
 
-// PUT /api/v1/jobs/:id - Update a job (employer, admin)
+// PUT /api/v1/jobs/:id - Update a job (Admin only)
 router.put(
   '/:id',
   authenticate,
-  authorize('employer', 'admin'),
+  authorize('admin'),
   validateIntParam('id'),
   jobsController.updateJob
 );
 
-// POST /api/v1/jobs/:id/apply - Apply for a job (woman)
+// DELETE /api/v1/jobs/:id - Delete a job (Admin only)
+router.delete(
+  '/:id',
+  authenticate,
+  authorize('admin'),
+  validateIntParam('id'),
+  jobsController.deleteJob
+);
+
+// POST /api/v1/jobs/:id/apply - Apply for a job (woman candidate)
 router.post(
   '/:id/apply',
   authenticate,
@@ -39,11 +48,11 @@ router.post(
   jobsController.applyForJob
 );
 
-// GET /api/v1/jobs/:id/applications - View applications for an employer's job
+// GET /api/v1/jobs/:id/applications - View applications for a job (Admin only)
 router.get(
   '/:id/applications',
   authenticate,
-  authorize('employer', 'admin'),
+  authorize('admin'),
   validateIntParam('id'),
   jobsController.getApplicationsForJob
 );

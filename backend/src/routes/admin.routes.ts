@@ -9,7 +9,7 @@ const router = Router();
 // Protect all admin routes: require authentication and admin role
 router.use(authenticate, authorize('admin'));
 
-// GET /api/v1/admin/statistics - Retrieve authorized dashboard statistics (PRD Section 7.2)
+// GET /api/v1/admin/statistics - Retrieve dashboard statistics across the 8 tables
 router.get('/statistics', adminController.getStatistics);
 
 // GET /api/v1/admin/users - List users
@@ -20,7 +20,7 @@ router.patch(
   '/users/:id/role',
   validateIntParam('id'),
   validateBody(['role']),
-  validateEnum('role', ['woman', 'training_provider', 'employer', 'admin']),
+  validateEnum('role', ['woman', 'training_provider', 'admin']),
   adminController.updateUserRole
 );
 

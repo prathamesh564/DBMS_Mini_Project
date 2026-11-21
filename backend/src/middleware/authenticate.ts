@@ -1,17 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt, { JwtPayload } from 'jsonwebtoken';
 import { query } from '../config/database';
+import { verifyToken, TokenPayload } from '../config/jwt';
 import { AuthUser, UserRole } from '../types';
 
-interface DecodedToken extends JwtPayload {
-  userId?: number;
-  id?: number;
+interface DecodedToken extends TokenPayload {
   sub?: string;
-  email?: string;
-  role?: UserRole;
-  womanId?: number | null;
-  providerId?: number | null;
-  employerId?: number | null;
+  id?: number;
 }
 
 /**
@@ -35,19 +29,16 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
       });
     }
 
-    // Attempt token verification with app JWT_SECRET or SUPABASE_JWT_SECRET
-    const secret =
-      process.env.JWT_SECRET ||
-      process.env.SUPABASE_JWT_SECRET ||
-      'women_skill_portal_super_secret_jwt_key_2025_secure';
+    // Verify token using centralized JWT configuration
     let decoded: DecodedToken;
 
     try {
-      decoded = jwt.verify(token, secret) as DecodedToken;
+      decoded = verifyToken(token) as DecodedToken;
     } catch (jwtErr: any) {
       return res.status(401).json({
         success: false,
         message: 'Unauthorized: Invalid or expired token.',
+        code: jwtErr.name === 'TokenExpiredError' ? 'TOKEN_EXPIRED' : 'TOKEN_INVALID',
         details: jwtErr.message,
       });
     }
@@ -66,14 +57,13 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
 
     if (userRes.rows.length === 0) {
       // If user profile isn't in DB yet, fallback to decoded JWT role or return 401
-      if (decoded.role) {
+      if (decoded.role && ['woman', 'training_provider', 'admin'].includes(decoded.role)) {
         req.user = {
           userId: Number(decoded.userId || decoded.id || 0),
           email: decoded.email || '',
           role: decoded.role,
           womanId: decoded.womanId || null,
-          providerId: decoded.providerId || null,
-          employerId: decoded.employerId || null,
+          entityId: decoded.entityId || null,
         };
         return next();
       }
@@ -86,10 +76,8 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
 
     const user = userRes.rows[0];
 
-    // Find linked role entities
+    // Find linked woman entity if candidate, auto-provision if missing
     let womanId: number | null = null;
-    let providerId: number | null = null;
-    let employerId: number | null = null;
 
     if (user.role === 'woman') {
       const wRes = await query<{ woman_id: number }>(
@@ -98,22 +86,14 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
       );
       if (wRes.rows.length > 0) {
         womanId = wRes.rows[0].woman_id;
-      }
-    } else if (user.role === 'training_provider') {
-      const pRes = await query<{ provider_id: number }>(
-        `SELECT provider_id FROM women_skill_portal.training_providers WHERE user_id = $1 OR email = $2 LIMIT 1`,
-        [user.user_id, user.email]
-      );
-      if (pRes.rows.length > 0) {
-        providerId = pRes.rows[0].provider_id;
-      }
-    } else if (user.role === 'employer') {
-      const eRes = await query<{ employer_id: number }>(
-        `SELECT employer_id FROM women_skill_portal.employers WHERE user_id = $1 OR email = $2 LIMIT 1`,
-        [user.user_id, user.email]
-      );
-      if (eRes.rows.length > 0) {
-        employerId = eRes.rows[0].employer_id;
+      } else {
+        const insRes = await query<{ woman_id: number }>(
+          `INSERT INTO women_skill_portal.women (user_id, full_name, email)
+           VALUES ($1, $2, $3)
+           RETURNING woman_id`,
+          [user.user_id, user.email.split('@')[0], user.email]
+        );
+        womanId = insRes.rows[0].woman_id;
       }
     }
 
@@ -122,8 +102,7 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
       email: user.email,
       role: user.role,
       womanId,
-      providerId,
-      employerId,
+      entityId: user.role === 'woman' ? womanId : user.user_id,
     };
 
     next();
@@ -148,5 +127,43 @@ export const optionalAuthenticate = async (
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return next();
   }
-  return authenticate(req, res, next);
+
+  const token = authHeader.split(' ')[1];
+  if (!token) {
+    return next();
+  }
+
+  try {
+    const decoded = verifyToken(token) as DecodedToken;
+    const userId = decoded.userId || decoded.sub || decoded.id;
+
+    const userRes = await query<{ user_id: number; email: string; role: UserRole }>(
+      `SELECT user_id, email, role FROM women_skill_portal.user_profiles WHERE user_id = $1 OR email = $2 LIMIT 1`,
+      [isNaN(Number(userId)) ? -1 : parseInt(String(userId), 10), decoded.email || '']
+    );
+
+    if (userRes.rows.length > 0) {
+      const user = userRes.rows[0];
+      let womanId: number | null = null;
+      if (user.role === 'woman') {
+        const wRes = await query<{ woman_id: number }>(
+          `SELECT woman_id FROM women_skill_portal.women WHERE user_id = $1 LIMIT 1`,
+          [user.user_id]
+        );
+        if (wRes.rows.length > 0) womanId = wRes.rows[0].woman_id;
+      }
+
+      req.user = {
+        userId: user.user_id,
+        email: user.email,
+        role: user.role,
+        womanId,
+        entityId: user.role === 'woman' ? womanId : user.user_id,
+      };
+    }
+  } catch {
+    // Non-blocking for optional authentication
+  }
+
+  next();
 };

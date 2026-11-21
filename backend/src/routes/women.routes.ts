@@ -31,8 +31,8 @@ router.delete(
   womenController.removeSkill
 );
 
-// GET /api/v1/women - List women (employers, training providers, admin)
-router.get('/', authenticate, authorize('employer', 'training_provider', 'admin'), womenController.listWomen);
+// GET /api/v1/women - List women candidates (training providers, admin)
+router.get('/', authenticate, authorize('training_provider', 'admin'), womenController.listWomen);
 
 // GET /api/v1/women/:id - View an authorized woman's profile
 router.get('/:id', authenticate, validateIntParam('id'), womenController.getWomanById);

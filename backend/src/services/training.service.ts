@@ -4,7 +4,8 @@ import { TrainingProgram, ProgramMode, ProgramStatus, CompletionStatus, UserRole
 export interface GetAllProgramsParams {
   category?: string;
   search?: string;
-  providerId?: number | string;
+  providerName?: string;
+  createdBy?: number | string;
   status?: string;
   limit?: number | string;
   offset?: number | string;
@@ -18,6 +19,7 @@ export interface CreateProgramParams {
   description?: string | null;
   mode?: ProgramMode;
   status?: ProgramStatus;
+  providerName?: string;
 }
 
 export interface UpdateProgramParams {
@@ -28,10 +30,11 @@ export interface UpdateProgramParams {
   description?: string | null;
   mode?: ProgramMode;
   status?: ProgramStatus;
+  providerName?: string;
 }
 
 export interface GetEnrollmentsParams {
-  providerId?: number | string;
+  providerUserId?: number | string;
   programId?: number | string;
   status?: string;
   limit?: number | string;
@@ -41,16 +44,18 @@ export interface GetEnrollmentsParams {
 export interface UpdateEnrollmentParams {
   completionStatus?: CompletionStatus;
   score?: number | string;
+  assessmentScore?: number | string;
   completionDate?: string;
 }
 
 /**
- * List training programs with filters and provider info
+ * List training programs with filters
  */
 export const getAllPrograms = async ({
   category,
   search,
-  providerId,
+  providerName,
+  createdBy,
   status,
   limit = 20,
   offset = 0,
@@ -69,13 +74,19 @@ export const getAllPrograms = async ({
     params.push(status);
   }
 
-  if (providerId) {
-    conditions.push(`tp.provider_id = $${idx++}`);
-    params.push(parseInt(String(providerId), 10));
+  if (createdBy) {
+    conditions.push(`(tp.created_by = $${idx} OR tp.user_id = $${idx})`);
+    params.push(parseInt(String(createdBy), 10));
+    idx++;
+  }
+
+  if (providerName) {
+    conditions.push(`tp.provider_name ILIKE $${idx++}`);
+    params.push(`%${providerName}%`);
   }
 
   if (search) {
-    conditions.push(`(tp.program_name ILIKE $${idx} OR tp.description ILIKE $${idx} OR prov.provider_name ILIKE $${idx})`);
+    conditions.push(`(tp.program_name ILIKE $${idx} OR tp.description ILIKE $${idx} OR tp.provider_name ILIKE $${idx})`);
     params.push(`%${search}%`);
     idx++;
   }
@@ -88,15 +99,14 @@ export const getAllPrograms = async ({
   const offsetIdx = idx++;
 
   const listSql = `
-    SELECT tp.program_id, tp.provider_id, tp.program_name, tp.category, tp.duration_weeks,
+    SELECT tp.program_id, tp.program_name, tp.category, tp.duration_weeks,
            tp.course_fee, tp.description, tp.mode, tp.status, tp.created_at,
-           prov.provider_name, prov.email AS provider_email, prov.phone AS provider_phone,
+           tp.provider_name, tp.created_by,
            COUNT(e.enrollment_id) AS enrolled_count
     FROM women_skill_portal.training_programs tp
-    JOIN women_skill_portal.training_providers prov ON tp.provider_id = prov.provider_id
     LEFT JOIN women_skill_portal.enrollments e ON tp.program_id = e.program_id
     ${whereClause}
-    GROUP BY tp.program_id, prov.provider_name, prov.email, prov.phone
+    GROUP BY tp.program_id
     ORDER BY tp.created_at DESC
     LIMIT $${limitIdx} OFFSET $${offsetIdx};
   `;
@@ -104,7 +114,6 @@ export const getAllPrograms = async ({
   const countSql = `
     SELECT COUNT(*) AS total
     FROM women_skill_portal.training_programs tp
-    JOIN women_skill_portal.training_providers prov ON tp.provider_id = prov.provider_id
     ${whereClause};
   `;
 
@@ -126,14 +135,12 @@ export const getAllPrograms = async ({
  */
 export const getProgramById = async (programId: number): Promise<any> => {
   const sql = `
-    SELECT tp.*, prov.provider_name, prov.email AS provider_email, prov.phone AS provider_phone,
-           prov.address AS provider_address, prov.website AS provider_website,
+    SELECT tp.*,
            COUNT(e.enrollment_id) AS total_enrolled
     FROM women_skill_portal.training_programs tp
-    JOIN women_skill_portal.training_providers prov ON tp.provider_id = prov.provider_id
     LEFT JOIN women_skill_portal.enrollments e ON tp.program_id = e.program_id
     WHERE tp.program_id = $1
-    GROUP BY tp.program_id, prov.provider_name, prov.email, prov.phone, prov.address, prov.website;
+    GROUP BY tp.program_id;
   `;
 
   const res = await query(sql, [programId]);
@@ -148,25 +155,18 @@ export const getProgramById = async (programId: number): Promise<any> => {
  * Create a new training program
  */
 export const createProgram = async (
-  providerId: number,
-  { programName, category, durationWeeks, courseFee, description, mode, status }: CreateProgramParams
+  userId: number,
+  userEmail: string,
+  { programName, category, durationWeeks, courseFee, description, mode, status, providerName }: CreateProgramParams
 ): Promise<any> => {
-  // Verify provider exists
-  const provCheck = await query<{ provider_id: number }>(
-    `SELECT provider_id FROM women_skill_portal.training_providers WHERE provider_id = $1`,
-    [providerId]
-  );
-  if (provCheck.rows.length === 0) {
-    throw new Error(`Training provider with ID ${providerId} does not exist.`);
-  }
+  const finalProviderName = providerName?.trim() || userEmail.split('@')[0] || 'EmpowerHer Academy';
 
   const res = await query<TrainingProgram>(
     `INSERT INTO women_skill_portal.training_programs 
-      (provider_id, program_name, category, duration_weeks, course_fee, description, mode, status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      (program_name, category, duration_weeks, course_fee, description, mode, status, provider_name, created_by, user_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
      RETURNING *`,
     [
-      providerId,
       programName.trim(),
       category || 'General',
       parseInt(String(durationWeeks), 10),
@@ -174,6 +174,9 @@ export const createProgram = async (
       description || null,
       mode || 'Online',
       status || 'Active',
+      finalProviderName,
+      userId,
+      userId,
     ]
   );
 
@@ -185,15 +188,15 @@ export const createProgram = async (
  */
 export const updateProgram = async (
   programId: number,
-  providerId: number | null | undefined,
+  userId: number,
   role: UserRole | undefined,
   updates: UpdateProgramParams
 ): Promise<any> => {
   const current = await getProgramById(programId);
 
-  // If not admin, check if user is the provider owner
-  if (role !== 'admin' && current.provider_id !== providerId) {
-    throw new Error('Forbidden: You can only update training programs offered by your institution.');
+  // If not admin, check if user is the program creator
+  if (role !== 'admin' && current.created_by !== userId && current.user_id !== userId) {
+    throw new Error('Forbidden: You can only update training programs created by your account.');
   }
 
   const fields: string[] = [];
@@ -228,6 +231,10 @@ export const updateProgram = async (
     fields.push(`status = $${idx++}`);
     params.push(updates.status);
   }
+  if (updates.providerName) {
+    fields.push(`provider_name = $${idx++}`);
+    params.push(updates.providerName.trim());
+  }
 
   if (fields.length === 0) {
     return current;
@@ -245,6 +252,20 @@ export const updateProgram = async (
 
   await query(sql, params);
   return getProgramById(programId);
+};
+
+/**
+ * Delete a program
+ */
+export const deleteProgram = async (programId: number, userId: number, role: UserRole | undefined): Promise<boolean> => {
+  const current = await getProgramById(programId);
+
+  if (role !== 'admin' && current.created_by !== userId && current.user_id !== userId) {
+    throw new Error('Forbidden: You can only delete training programs created by your account.');
+  }
+
+  await query(`DELETE FROM women_skill_portal.training_programs WHERE program_id = $1`, [programId]);
+  return true;
 };
 
 /**
@@ -291,14 +312,12 @@ export const enrollInProgram = async (womanId: number, programId: number): Promi
  */
 export const getPersonalEnrollments = async (womanId: number): Promise<any[]> => {
   const sql = `
-    SELECT e.enrollment_id, e.program_id, e.enrollment_date, e.completion_status, e.completion_date, e.score,
+    SELECT e.enrollment_id, e.program_id, e.enrollment_date, e.completion_status, e.completion_date, 
+           COALESCE(e.assessment_score, e.score) AS score,
            tp.program_name, tp.category, tp.duration_weeks, tp.mode, tp.course_fee,
-           prov.provider_name, prov.email AS provider_email,
-           c.certification_id, c.certificate_number, c.issue_date AS cert_issue_date
+           tp.provider_name
     FROM women_skill_portal.enrollments e
     JOIN women_skill_portal.training_programs tp ON e.program_id = tp.program_id
-    JOIN women_skill_portal.training_providers prov ON tp.provider_id = prov.provider_id
-    LEFT JOIN women_skill_portal.certifications c ON c.woman_id = e.woman_id AND c.program_id = e.program_id
     WHERE e.woman_id = $1
     ORDER BY e.enrollment_date DESC;
   `;
@@ -311,7 +330,7 @@ export const getPersonalEnrollments = async (womanId: number): Promise<any[]> =>
  * List enrollments for a provider or admin
  */
 export const getEnrollments = async ({
-  providerId,
+  providerUserId,
   programId,
   status,
   limit = 50,
@@ -321,9 +340,10 @@ export const getEnrollments = async ({
   const params: any[] = [];
   let idx = 1;
 
-  if (providerId) {
-    conditions.push(`tp.provider_id = $${idx++}`);
-    params.push(parseInt(String(providerId), 10));
+  if (providerUserId) {
+    conditions.push(`(tp.created_by = $${idx} OR tp.user_id = $${idx})`);
+    params.push(parseInt(String(providerUserId), 10));
+    idx++;
   }
 
   if (programId) {
@@ -344,14 +364,14 @@ export const getEnrollments = async ({
   const offsetIdx = idx++;
 
   const sql = `
-    SELECT e.enrollment_id, e.enrollment_date, e.completion_status, e.completion_date, e.score,
+    SELECT e.enrollment_id, e.enrollment_date, e.completion_status, e.completion_date,
+           COALESCE(e.assessment_score, e.score) AS score,
+           e.assessment_score,
            w.woman_id, w.full_name, w.email AS woman_email, w.phone AS woman_phone,
-           tp.program_id, tp.program_name, tp.duration_weeks,
-           prov.provider_id, prov.provider_name
+           tp.program_id, tp.program_name, tp.duration_weeks, tp.provider_name, tp.created_by
     FROM women_skill_portal.enrollments e
     JOIN women_skill_portal.women w ON e.woman_id = w.woman_id
     JOIN women_skill_portal.training_programs tp ON e.program_id = tp.program_id
-    JOIN women_skill_portal.training_providers prov ON tp.provider_id = prov.provider_id
     ${whereClause}
     ORDER BY e.enrollment_date DESC
     LIMIT $${limitIdx} OFFSET $${offsetIdx};
@@ -362,11 +382,11 @@ export const getEnrollments = async ({
 };
 
 /**
- * Update enrollment progress, completion status, and score
+ * Update enrollment progress, completion status, and assessment score
  */
 export const updateEnrollment = async (
   enrollmentId: number,
-  { completionStatus, score, completionDate }: UpdateEnrollmentParams
+  { completionStatus, score, assessmentScore, completionDate }: UpdateEnrollmentParams
 ): Promise<any> => {
   const currentRes = await query<{ enrollment_id: number }>(
     `SELECT * FROM women_skill_portal.enrollments WHERE enrollment_id = $1`,
@@ -390,9 +410,13 @@ export const updateEnrollment = async (
     }
   }
 
-  if (score !== undefined && score !== null) {
+  const numericScore = assessmentScore !== undefined ? assessmentScore : score;
+  if (numericScore !== undefined && numericScore !== null) {
+    const val = parseFloat(String(numericScore));
     fields.push(`score = $${idx++}`);
-    params.push(parseFloat(String(score)));
+    params.push(val);
+    fields.push(`assessment_score = $${idx++}`);
+    params.push(val);
   }
 
   if (completionDate) {

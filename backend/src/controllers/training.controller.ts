@@ -4,11 +4,12 @@ import { query } from '../config/database';
 
 export const listPrograms = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { category, search, providerId, status, limit, offset } = req.query;
+    const { category, search, providerName, createdBy, status, limit, offset } = req.query;
     const result = await trainingService.getAllPrograms({
       category: category as string,
       search: search as string,
-      providerId: providerId as string,
+      providerName: providerName as string,
+      createdBy: createdBy as string,
       status: status as string,
       limit: limit as string,
       offset: offset as string,
@@ -35,27 +36,8 @@ export const createProgram = async (req: Request, res: Response, next: NextFunct
       return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
 
-    let providerId = req.user.providerId;
-
-    if (!providerId && req.user.role === 'admin') {
-      providerId = req.body.providerId;
-      if (!providerId) {
-        return res.status(400).json({ success: false, message: 'Provider ID required when creating program as admin.' });
-      }
-    } else if (!providerId) {
-      // Find provider ID by user ID
-      const p = await query<{ provider_id: number }>(
-        `SELECT provider_id FROM women_skill_portal.training_providers WHERE user_id = $1`,
-        [req.user.userId]
-      );
-      if (p.rows.length === 0) {
-        return res.status(400).json({ success: false, message: 'No training provider profile found for this user.' });
-      }
-      providerId = p.rows[0].provider_id;
-    }
-
-    const { programName, category, durationWeeks, courseFee, description, mode, status } = req.body;
-    const newProgram = await trainingService.createProgram(providerId, {
+    const { programName, category, durationWeeks, courseFee, description, mode, status, providerName } = req.body;
+    const newProgram = await trainingService.createProgram(req.user.userId, req.user.email, {
       programName,
       category,
       durationWeeks,
@@ -63,6 +45,7 @@ export const createProgram = async (req: Request, res: Response, next: NextFunct
       description,
       mode,
       status,
+      providerName,
     });
 
     res.status(201).json({ success: true, message: 'Training program created successfully.', data: newProgram });
@@ -78,17 +61,22 @@ export const updateProgram = async (req: Request, res: Response, next: NextFunct
     }
 
     const programId = parseInt(req.params.id, 10);
-    let providerId = req.user.providerId;
-    if (!providerId && req.user.role === 'training_provider') {
-      const p = await query<{ provider_id: number }>(
-        `SELECT provider_id FROM women_skill_portal.training_providers WHERE user_id = $1`,
-        [req.user.userId]
-      );
-      if (p.rows.length > 0) providerId = p.rows[0].provider_id;
+    const updated = await trainingService.updateProgram(programId, req.user.userId, req.user.role, req.body);
+    res.status(200).json({ success: true, message: 'Training program updated successfully.', data: updated });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const deleteProgram = async (req: Request, res: Response, next: NextFunction): Promise<void | Response> => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
 
-    const updated = await trainingService.updateProgram(programId, providerId, req.user.role, req.body);
-    res.status(200).json({ success: true, message: 'Training program updated successfully.', data: updated });
+    const programId = parseInt(req.params.id, 10);
+    await trainingService.deleteProgram(programId, req.user.userId, req.user.role);
+    res.status(200).json({ success: true, message: 'Training program deleted successfully.' });
   } catch (err) {
     next(err);
   }
@@ -107,7 +95,10 @@ export const enroll = async (req: Request, res: Response, next: NextFunction): P
         [req.user.userId]
       );
       if (w.rows.length === 0) {
-        return res.status(400).json({ success: false, message: 'Woman profile not found for this account.' });
+        return res.status(400).json({
+          success: false,
+          message: 'Only registered woman candidate profiles can enroll in training programs.',
+        });
       }
       womanId = w.rows[0].woman_id;
     }
@@ -138,7 +129,7 @@ export const getMyEnrollments = async (req: Request, res: Response, next: NextFu
         [req.user.userId]
       );
       if (w.rows.length === 0) {
-        return res.status(400).json({ success: false, message: 'Woman profile not found for this account.' });
+        return res.status(200).json({ success: true, count: 0, data: [] });
       }
       womanId = w.rows[0].woman_id;
     }

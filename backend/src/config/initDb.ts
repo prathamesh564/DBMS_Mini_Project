@@ -11,7 +11,7 @@ async function run(): Promise<void> {
     console.log('Executing schema definition...');
     await pool.query(sql);
 
-    console.log('Schema `women_skill_portal` and all 12 tables created successfully!');
+    console.log('Schema `women_skill_portal` and all 8 tables created successfully!');
   } catch (err) {
     console.error('Error initializing schema:', err);
     process.exitCode = 1;

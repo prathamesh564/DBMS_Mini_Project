@@ -1,23 +1,56 @@
 /**
  * EmpowerHer Skills Portal - Frontend API Service Layer
- * Reuses existing backend endpoints: Node.js + Express + Supabase PostgreSQL
+ * Clean 8-Table Architecture: Node.js + Express + Supabase PostgreSQL
  */
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api/v1';
 
+// Helper to check if a JWT token is expired on the client side
+function isTokenExpired(token) {
+  if (!token || typeof token !== 'string') return true;
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return true;
+    const base64Url = parts[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(
+      atob(base64)
+        .split('')
+        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    );
+    const payload = JSON.parse(jsonPayload);
+    if (!payload.exp) return false;
+    // Current time in seconds with 5-second grace buffer
+    return payload.exp <= Math.floor(Date.now() / 1000) + 5;
+  } catch (e) {
+    return true;
+  }
+}
+
 // Token and User session management helpers
 export const getAuthToken = () => {
   if (typeof window === 'undefined') return null;
-  return localStorage.getItem('empowerher_token');
+  const token = localStorage.getItem('empowerher_token');
+  if (!token || token === 'undefined' || token === 'null' || token.trim() === '') {
+    return null;
+  }
+  // Proactively invalidate and purge expired tokens
+  if (isTokenExpired(token)) {
+    clearAuth();
+    return null;
+  }
+  return token;
 };
 
 export const setAuthToken = (token) => {
   if (typeof window === 'undefined') return;
-  if (token) {
+  if (token && token !== 'undefined' && token !== 'null') {
     localStorage.setItem('empowerher_token', token);
   } else {
     localStorage.removeItem('empowerher_token');
   }
+  window.dispatchEvent(new Event('empowerher_auth_changed'));
 };
 
 export const getStoredUser = () => {
@@ -37,12 +70,14 @@ export const setStoredUser = (user) => {
   } else {
     localStorage.removeItem('empowerher_user');
   }
+  window.dispatchEvent(new Event('empowerher_auth_changed'));
 };
 
 export const clearAuth = () => {
   if (typeof window === 'undefined') return;
   localStorage.removeItem('empowerher_token');
   localStorage.removeItem('empowerher_user');
+  window.dispatchEvent(new Event('empowerher_auth_changed'));
 };
 
 /**
@@ -75,6 +110,10 @@ async function apiRequest(endpoint, options = {}) {
     }
 
     if (!res.ok) {
+      // Automatically purge stale or expired token credentials on 401 Unauthorized
+      if (res.status === 401) {
+        clearAuth();
+      }
       const errorMsg = data?.message || data?.error || `HTTP error! Status: ${res.status}`;
       const err = new Error(errorMsg);
       err.status = res.status;
@@ -84,7 +123,6 @@ async function apiRequest(endpoint, options = {}) {
 
     return data;
   } catch (error) {
-    // If backend is unreachable or CORS fails, format gracefully
     if (error.name === 'TypeError' && error.message.includes('fetch')) {
       const connErr = new Error('Cannot connect to backend server. Ensure backend is running at http://localhost:5000');
       connErr.isNetworkError = true;
@@ -95,7 +133,7 @@ async function apiRequest(endpoint, options = {}) {
 }
 
 export const api = {
-  // Authentication
+  // Authentication (Strictly supports 'woman', 'training_provider', 'admin')
   auth: {
     login: async (credentials) => {
       const res = await apiRequest('/auth/login', {
@@ -127,7 +165,7 @@ export const api = {
     },
   },
 
-  // Candidate / Women
+  // Candidate / Women Profiles
   women: {
     getMyProfile: () => apiRequest('/women/me'),
     updateMyProfile: (data) =>
@@ -135,10 +173,10 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify(data),
       }),
-    addSkill: ({ skillId, proficiencyLevel }) =>
+    addSkill: ({ skillId, proficiencyLevel, yearsExperience }) =>
       apiRequest('/women/me/skills', {
         method: 'POST',
-        body: JSON.stringify({ skillId, proficiencyLevel }),
+        body: JSON.stringify({ skillId, proficiencyLevel, yearsExperience }),
       }),
     removeSkill: (skillId) =>
       apiRequest(`/women/me/skills/${skillId}`, {
@@ -151,7 +189,7 @@ export const api = {
     getById: (id) => apiRequest(`/women/${id}`),
   },
 
-  // Skills
+  // Skills Taxonomy
   skills: {
     getAll: () => apiRequest('/skills'),
     getById: (id) => apiRequest(`/skills/${id}`),
@@ -171,7 +209,7 @@ export const api = {
       }),
   },
 
-  // Training Programs & Enrollments
+  // Training Programs
   training: {
     listPrograms: (params = {}) => {
       const query = new URLSearchParams(params).toString();
@@ -188,6 +226,10 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify(data),
       }),
+    deleteProgram: (id) =>
+      apiRequest(`/training/programs/${id}`, {
+        method: 'DELETE',
+      }),
     enroll: (programId) =>
       apiRequest(`/training/programs/${programId}/enroll`, {
         method: 'POST',
@@ -197,16 +239,19 @@ export const api = {
 
   // Enrollments Management (Training Provider & Admin)
   enrollments: {
-    list: () => apiRequest('/enrollments'),
+    list: (params = {}) => {
+      const query = new URLSearchParams(params).toString();
+      return apiRequest(`/enrollments${query ? `?${query}` : ''}`);
+    },
     getById: (id) => apiRequest(`/enrollments/${id}`),
-    updateStatus: (id, { completionStatus, score }) =>
+    updateStatus: (id, { completionStatus, score, assessmentScore, completionDate }) =>
       apiRequest(`/enrollments/${id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ completionStatus, score }),
+        body: JSON.stringify({ completionStatus, score, assessmentScore, completionDate }),
       }),
   },
 
-  // Jobs
+  // Job Postings (Admin managed; Candidate browses & applies)
   jobs: {
     list: (params = {}) => {
       const query = new URLSearchParams(params).toString();
@@ -223,83 +268,40 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify(data),
       }),
-    apply: (id) =>
+    delete: (id) =>
+      apiRequest(`/jobs/${id}`, {
+        method: 'DELETE',
+      }),
+    apply: (id, coverNote) =>
       apiRequest(`/jobs/${id}/apply`, {
         method: 'POST',
+        body: JSON.stringify({ coverNote }),
       }),
     getApplicationsForJob: (id) => apiRequest(`/jobs/${id}/applications`),
   },
 
-  // Applications (Candidate & Employer)
+  // Job Applications (Candidate & Admin)
   applications: {
     getMyApplications: () => apiRequest('/applications/me'),
+    listAll: (params = {}) => {
+      const query = new URLSearchParams(params).toString();
+      return apiRequest(`/applications${query ? `?${query}` : ''}`);
+    },
     getById: (id) => apiRequest(`/applications/${id}`),
     updateStatus: (id, status) =>
       apiRequest(`/applications/${id}/status`, {
         method: 'PATCH',
         body: JSON.stringify({ status }),
       }),
-    scheduleInterview: (id, interviewData) =>
-      apiRequest(`/applications/${id}/interviews`, {
-        method: 'POST',
-        body: JSON.stringify(interviewData),
-      }),
   },
 
-  // Interviews
-  interviews: {
-    getMyInterviews: () => apiRequest('/interviews/me'),
-    getById: (id) => apiRequest(`/interviews/${id}`),
-    update: (id, data) =>
-      apiRequest(`/interviews/${id}`, {
-        method: 'PATCH',
-        body: JSON.stringify(data),
-      }),
-  },
-
-  // Certifications
-  certifications: {
-    getMyCertificates: () => apiRequest('/certifications/me'),
-    getById: (id) => apiRequest(`/certifications/${id}`),
-    record: (data) =>
-      apiRequest('/certifications', {
-        method: 'POST',
-        body: JSON.stringify(data),
-      }),
-  },
-
-  // Employment Records
-  employment: {
-    getMyEmployment: () => apiRequest('/employment/me'),
-    getById: (id) => apiRequest(`/employment/${id}`),
-    recordPlacement: (data) =>
-      apiRequest('/employment', {
-        method: 'POST',
-        body: JSON.stringify(data),
-      }),
-    updateStatus: (id, employmentStatus) =>
-      apiRequest(`/employment/${id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ employmentStatus }),
-      }),
-  },
-
-  // Employers
-  employers: {
-    getMyProfile: () => apiRequest('/employers/me'),
-    updateMyProfile: (data) =>
-      apiRequest('/employers/me', {
-        method: 'PUT',
-        body: JSON.stringify(data),
-      }),
-    list: () => apiRequest('/employers'),
-    getById: (id) => apiRequest(`/employers/${id}`),
-  },
-
-  // Admin Portal
+  // Admin Console
   admin: {
     getStatistics: () => apiRequest('/admin/statistics'),
-    listUsers: () => apiRequest('/admin/users'),
+    listUsers: (params = {}) => {
+      const query = new URLSearchParams(params).toString();
+      return apiRequest(`/admin/users${query ? `?${query}` : ''}`);
+    },
     updateUserRole: (id, role) =>
       apiRequest(`/admin/users/${id}/role`, {
         method: 'PATCH',

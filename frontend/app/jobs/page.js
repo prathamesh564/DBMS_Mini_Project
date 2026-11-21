@@ -10,6 +10,8 @@ export default function JobsPage() {
   const [filteredJobs, setFilteredJobs] = useState([]);
   const [appliedJobIds, setAppliedJobIds] = useState(new Set());
   const [applyingJobId, setApplyingJobId] = useState(null);
+  const [selectedJobForApply, setSelectedJobForApply] = useState(null);
+  const [coverNote, setCoverNote] = useState('');
   const [feedback, setFeedback] = useState(null);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(null);
@@ -19,20 +21,23 @@ export default function JobsPage() {
   const [jobTypeFilter, setJobTypeFilter] = useState('all');
   const [locationFilter, setLocationFilter] = useState('all');
 
-  // Employer Create Job Modal
+  // Admin Create Job Modal
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [createForm, setCreateForm] = useState({
+    companyName: '',
     jobTitle: '',
     jobDescription: '',
     location: 'Remote',
-    jobType: 'Full-time',
-    salaryRange: '$75,000 - $90,000 / yr',
-    skillsRequired: 'React, TypeScript, Tailwind',
+    employmentType: 'Full-time',
+    salary: '₹8,00,000 - ₹12,00,000 / yr',
+    deadline: '',
+    status: 'active',
   });
 
   useEffect(() => {
-    setUser(getStoredUser());
+    const currentUser = getStoredUser();
+    setUser(currentUser);
 
     async function loadJobsAndApplications() {
       setLoading(true);
@@ -43,73 +48,66 @@ export default function JobsPage() {
         ]);
 
         if (appsRes.status === 'fulfilled' && appsRes.value?.data) {
-          const applied = new Set(appsRes.value.data.map((a) => a.job_id || a.jobId));
+          const rawApps = Array.isArray(appsRes.value.data) ? appsRes.value.data : (appsRes.value.data.applications || []);
+          const applied = new Set(rawApps.map((a) => a.job_id || a.jobId));
           setAppliedJobIds(applied);
         }
 
-        if (jobsRes.status === 'fulfilled' && jobsRes.value?.data?.length > 0) {
-          setJobs(jobsRes.value.data);
-          setFilteredJobs(jobsRes.value.data);
+        const rawJobs = jobsRes.status === 'fulfilled'
+          ? (Array.isArray(jobsRes.value?.data) ? jobsRes.value.data : (jobsRes.value?.data?.jobs || []))
+          : [];
+
+        if (rawJobs.length > 0) {
+          setJobs(rawJobs);
+          setFilteredJobs(rawJobs);
         } else {
           // Curated default opportunities
           const defaultJobs = [
             {
-              job_id: '1',
+              job_id: 1,
               job_title: 'Associate Frontend Engineer',
               company_name: 'Starlight Software Inc.',
-              location: 'Remote • US/Canada',
+              location: 'Remote • India/Global',
               job_type: 'Full-time',
-              salary_range: '$78,000 - $88,000 / yr',
+              salary: '₹8,50,000 - ₹11,00,000 / yr',
               job_description: 'Building accessible, high-performance web components using modern React, TypeScript, and Tailwind CSS.',
-              skills_required: ['React', 'TypeScript', 'Tailwind'],
+              skills_required: ['React', 'TypeScript', 'Tailwind', 'PostgreSQL'],
               is_remote: true,
               created_at: new Date().toISOString(),
             },
             {
-              job_id: '2',
+              job_id: 2,
               job_title: 'Junior Data Analyst',
               company_name: 'Nexus Financial Group',
-              location: 'Hybrid • New York, NY',
+              location: 'Hybrid • Bengaluru, India',
               job_type: 'Full-time',
-              salary_range: '$70,000 - $82,000 / yr',
+              salary: '₹7,50,000 - ₹9,50,000 / yr',
               job_description: 'Formulate predictive BI models and SQL data pipelines for retail financial services.',
               skills_required: ['SQL', 'Python', 'PowerBI'],
               is_remote: false,
               created_at: new Date().toISOString(),
             },
             {
-              job_id: '3',
-              job_title: 'Associate Product Designer (UI/UX)',
-              company_name: 'Vanguard Health Tech',
+              job_id: 3,
+              job_title: 'Cloud DevOps Associate',
+              company_name: 'CloudBridge Labs',
               location: 'Remote • Global',
               job_type: 'Full-time',
-              salary_range: '$85,000 - $95,000 / yr',
-              job_description: 'Advancing digital healthcare product ergonomics, patient portals, and comprehensive design tokens.',
-              skills_required: ['Figma', 'WCAG', 'Design Systems'],
+              salary: '₹9,50,000 - ₹13,00,000 / yr',
+              job_description: 'Assist in maintaining containerized Kubernetes clusters, CI/CD automated deployments, and AWS cloud security.',
+              skills_required: ['AWS', 'Docker', 'Kubernetes', 'Linux'],
               is_remote: true,
               created_at: new Date().toISOString(),
             },
             {
-              job_id: '4',
-              job_title: 'Junior Growth Specialist',
-              company_name: 'OmniRetail E-Commerce',
-              location: 'Hybrid • Austin, TX',
+              job_id: 4,
+              job_title: 'Associate Product Designer (UI/UX)',
+              company_name: 'Vanguard Health Tech',
+              location: 'Remote • Global',
               job_type: 'Full-time',
-              salary_range: '$65,000 - $75,000 / yr',
-              job_description: 'Coordinating user engagement funnels, content attribution, and multivariable conversion tracking.',
-              skills_required: ['Analytics', 'Growth', 'Automation'],
-              is_remote: false,
-              created_at: new Date().toISOString(),
-            },
-            {
-              job_id: '5',
-              job_title: 'Cloud DevOps Associate',
-              company_name: 'CloudBridge Labs',
-              location: 'Remote • San Francisco, CA',
-              job_type: 'Full-time',
-              salary_range: '$90,000 - $105,000 / yr',
-              job_description: 'Assist in maintaining containerized Kubernetes clusters, CI/CD automated deployments, and AWS cloud security.',
-              skills_required: ['AWS', 'Docker', 'Kubernetes', 'Linux'],
+              salary: '₹8,00,000 - ₹10,50,000 / yr',
+              job_description: 'Advancing digital healthcare product ergonomics, patient portals, and comprehensive design tokens.',
+              skills_required: ['Figma', 'WCAG', 'Design Systems'],
               is_remote: true,
               created_at: new Date().toISOString(),
             },
@@ -137,12 +135,13 @@ export default function JobsPage() {
         (j) =>
           (j.job_title && j.job_title.toLowerCase().includes(q)) ||
           (j.company_name && j.company_name.toLowerCase().includes(q)) ||
+          (j.location && j.location.toLowerCase().includes(q)) ||
           (j.skills_required && Array.isArray(j.skills_required) && j.skills_required.some((s) => s.toLowerCase().includes(q)))
       );
     }
 
     if (jobTypeFilter !== 'all') {
-      result = result.filter((j) => (j.job_type || '').toLowerCase() === jobTypeFilter.toLowerCase());
+      result = result.filter((j) => (j.job_type || j.employment_type || '').toLowerCase() === jobTypeFilter.toLowerCase());
     }
 
     if (locationFilter !== 'all') {
@@ -156,23 +155,32 @@ export default function JobsPage() {
     setFilteredJobs(result);
   }, [searchQuery, jobTypeFilter, locationFilter, jobs]);
 
-  const handleApply = async (jobId) => {
-    setApplyingJobId(jobId);
+  const handleOpenApplyModal = (job) => {
+    setSelectedJobForApply(job);
+    setCoverNote('I am excited to submit my candidacy for this position through the EmpowerHer skill portal. My verified skills and project achievements make me a strong candidate for this role.');
+  };
+
+  const handleConfirmApply = async () => {
+    if (!selectedJobForApply) return;
+    const jId = selectedJobForApply.job_id || selectedJobForApply.id;
+    setApplyingJobId(jId);
     setFeedback(null);
 
     try {
-      await api.jobs.apply(jobId);
-      setAppliedJobIds((prev) => new Set([...prev, jobId]));
+      await api.jobs.apply(jId, coverNote);
+      setAppliedJobIds((prev) => new Set([...prev, jId]));
+      setSelectedJobForApply(null);
       setFeedback({
         type: 'success',
-        text: 'Application submitted successfully! Track progress in your Applications page.',
+        text: `Application submitted successfully for ${selectedJobForApply.job_title}! Track your progress in Applications.`,
       });
     } catch (err) {
       if (err.message && (err.message.includes('already applied') || err.message.includes('duplicate'))) {
-        setAppliedJobIds((prev) => new Set([...prev, jobId]));
+        setAppliedJobIds((prev) => new Set([...prev, jId]));
+        setSelectedJobForApply(null);
         setFeedback({
           type: 'info',
-          text: 'You have already applied for this opening.',
+          text: 'You have already submitted an application for this vacancy.',
         });
       } else {
         setFeedback({
@@ -190,32 +198,41 @@ export default function JobsPage() {
     setIsCreating(true);
 
     try {
-      const skillsArray = createForm.skillsRequired
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean);
-
       await api.jobs.create({
+        companyName: createForm.companyName,
         jobTitle: createForm.jobTitle,
         jobDescription: createForm.jobDescription,
         location: createForm.location,
-        jobType: createForm.jobType,
-        salaryRange: createForm.salaryRange,
-        skillsRequired: skillsArray,
+        salary: createForm.salary,
+        employmentType: createForm.employmentType,
+        deadline: createForm.deadline || null,
+        status: createForm.status,
       });
 
       setShowCreateModal(false);
-      setFeedback({ type: 'success', text: 'New job opportunity published successfully!' });
+      setFeedback({ type: 'success', text: 'New job vacancy published successfully!' });
 
-      // Refresh list
+      // Refresh jobs list
       const res = await api.jobs.list();
-      if (res?.data) {
-        setJobs(res.data);
+      const rawJobs = Array.isArray(res?.data) ? res.data : (res?.data?.jobs || []);
+      if (rawJobs.length > 0) {
+        setJobs(rawJobs);
       }
     } catch (err) {
       alert(err.message || 'Failed to publish job.');
     } finally {
       setIsCreating(false);
+    }
+  };
+
+  const handleDeleteJob = async (jobId) => {
+    if (!confirm('Are you sure you want to remove this job posting?')) return;
+    try {
+      await api.jobs.delete(jobId);
+      setJobs((prev) => prev.filter((j) => (j.job_id || j.id) !== jobId));
+      setFeedback({ type: 'success', text: 'Job posting deleted.' });
+    } catch (err) {
+      alert(err.message || 'Failed to delete job.');
     }
   };
 
@@ -229,17 +246,17 @@ export default function JobsPage() {
             <div className="max-w-2xl space-y-3">
               <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/15 text-primary-fixed backdrop-blur-md text-label-md font-semibold">
                 <span className="material-symbols-outlined text-[16px]">verified</span>
-                Equal Opportunity & Fair Wage Directory
+                Equal Opportunity & Verified Fair Wage Directory
               </span>
               <h1 className="font-headline-lg text-headline-lg lg:text-display-lg text-white font-bold tracking-tight">
                 Verified Career Opportunities
               </h1>
               <p className="font-body-md text-body-md text-primary-fixed-dim leading-relaxed">
-                Connect directly with inclusive hiring partners. Skip automated resume filters through verified technical credentials and partner fast-tracks.
+                Connect directly with inclusive hiring partners. Skip automated resume filters through verified technical credentials and fast-track interviews.
               </p>
             </div>
 
-            {(user?.role === 'employer' || user?.role === 'admin') && (
+            {user?.role === 'admin' && (
               <button
                 onClick={() => setShowCreateModal(true)}
                 className="px-6 py-3 rounded-xl bg-surface-container-lowest text-primary font-label-lg font-bold shadow-md hover:bg-surface-container transition-all flex items-center gap-2 self-start md:self-auto"
@@ -251,7 +268,7 @@ export default function JobsPage() {
           </div>
         </div>
 
-        {/* Global Feedback Banner */}
+        {/* Feedback Alert */}
         {feedback && (
           <div
             className={`p-4 rounded-xl flex items-center justify-between gap-3 shadow-xs ${
@@ -332,7 +349,7 @@ export default function JobsPage() {
             <span>Showing {filteredJobs.length} opportunities</span>
             <span className="text-tertiary font-semibold flex items-center gap-1">
               <span className="material-symbols-outlined text-[16px]">verified</span>
-              Equal Pay Guarantee
+              Equal Pay Benchmark Guarantee
             </span>
           </div>
         </div>
@@ -345,13 +362,26 @@ export default function JobsPage() {
               const hasApplied = appliedJobIds.has(jId);
 
               return (
-                <JobCard
-                  key={jId}
-                  job={job}
-                  onApply={handleApply}
-                  isApplying={applyingJobId === jId}
-                  hasApplied={hasApplied}
-                />
+                <div key={jId} className="relative">
+                  <JobCard
+                    job={job}
+                    onApply={() => handleOpenApplyModal(job)}
+                    isApplying={applyingJobId === jId}
+                    hasApplied={hasApplied}
+                  />
+
+                  {user?.role === 'admin' && (
+                    <div className="absolute top-4 right-4 z-10">
+                      <button
+                        onClick={() => handleDeleteJob(jId)}
+                        title="Delete Job Posting"
+                        className="p-1.5 rounded-lg bg-surface-container text-rose-600 hover:bg-rose-50 border border-outline-variant/20 transition-colors"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">delete</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
               );
             })
           ) : (
@@ -366,7 +396,69 @@ export default function JobsPage() {
         </div>
       </div>
 
-      {/* CREATE JOB MODAL (Employer & Admin) */}
+      {/* CANDIDATE APPLY MODAL WITH COVER NOTE */}
+      {selectedJobForApply && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-xs" onClick={() => setSelectedJobForApply(null)} />
+          <div className="relative bg-surface-container-lowest rounded-2xl shadow-2xl p-6 sm:p-8 max-w-lg w-full space-y-5 border border-outline-variant/20 z-10">
+            <div className="flex items-center justify-between border-b border-outline-variant/15 pb-3">
+              <div>
+                <span className="text-[11px] font-bold text-primary uppercase">Direct Job Application</span>
+                <h3 className="font-headline-sm font-bold text-on-surface">{selectedJobForApply.job_title}</h3>
+                <p className="text-body-sm text-on-surface-variant">{selectedJobForApply.company_name}</p>
+              </div>
+              <button onClick={() => setSelectedJobForApply(null)} className="text-secondary hover:text-on-surface">
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-label-md font-semibold text-on-surface mb-1">
+                  Candidate Cover Note
+                </label>
+                <textarea
+                  rows={4}
+                  value={coverNote}
+                  onChange={(e) => setCoverNote(e.target.value)}
+                  placeholder="Introduce yourself, highlight relevant training programs, and share why you are interested in this position..."
+                  className="w-full p-3 rounded-xl bg-surface-container-low border border-outline-variant/30 text-body-md outline-none resize-none"
+                />
+              </div>
+
+              <div className="p-3 rounded-xl bg-surface-container-low text-xs text-on-surface-variant space-y-1 border border-outline-variant/10">
+                <p className="font-semibold text-on-surface flex items-center gap-1">
+                  <span className="material-symbols-outlined text-[16px] text-tertiary">verified</span>
+                  Verified Candidate Profile Attachment
+                </p>
+                <p>
+                  Your verified education, active skill badges, and contact email will be securely forwarded directly to the hiring coordinator.
+                </p>
+              </div>
+
+              <div className="pt-2 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setSelectedJobForApply(null)}
+                  className="px-4 py-2 rounded-xl bg-surface-container text-on-surface-variant font-label-md"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={applyingJobId != null}
+                  onClick={handleConfirmApply}
+                  className="px-5 py-2 rounded-xl bg-primary text-on-primary font-label-md font-bold shadow-xs hover:bg-primary-container transition-colors disabled:opacity-60 flex items-center gap-1.5"
+                >
+                  {applyingJobId != null ? 'Submitting...' : 'Confirm Application'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CREATE JOB MODAL (Admin Only) */}
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-black/40 backdrop-blur-xs" onClick={() => setShowCreateModal(false)} />
@@ -378,6 +470,18 @@ export default function JobsPage() {
               </button>
             </div>
             <form onSubmit={handleCreateJob} className="space-y-4">
+              <div>
+                <label className="block text-label-md font-semibold text-on-surface mb-1">Company Name</label>
+                <input
+                  type="text"
+                  required
+                  value={createForm.companyName}
+                  onChange={(e) => setCreateForm({ ...createForm, companyName: e.target.value })}
+                  placeholder="e.g. Google India / Starlight Software"
+                  className="w-full h-10 px-3 rounded-xl bg-surface-container-low border border-outline-variant/30 text-body-md outline-none"
+                />
+              </div>
+
               <div>
                 <label className="block text-label-md font-semibold text-on-surface mb-1">Job Title</label>
                 <input
@@ -398,15 +502,15 @@ export default function JobsPage() {
                     required
                     value={createForm.location}
                     onChange={(e) => setCreateForm({ ...createForm, location: e.target.value })}
-                    placeholder="e.g. Remote • US/Canada"
+                    placeholder="e.g. Remote • India"
                     className="w-full h-10 px-3 rounded-xl bg-surface-container-low border border-outline-variant/30 text-body-md outline-none"
                   />
                 </div>
                 <div>
-                  <label className="block text-label-md font-semibold text-on-surface mb-1">Job Type</label>
+                  <label className="block text-label-md font-semibold text-on-surface mb-1">Employment Type</label>
                   <select
-                    value={createForm.jobType}
-                    onChange={(e) => setCreateForm({ ...createForm, jobType: e.target.value })}
+                    value={createForm.employmentType}
+                    onChange={(e) => setCreateForm({ ...createForm, employmentType: e.target.value })}
                     className="w-full h-10 px-3 rounded-xl bg-surface-container-low border border-outline-variant/30 text-body-md outline-none"
                   >
                     <option value="Full-time">Full-time</option>
@@ -421,22 +525,9 @@ export default function JobsPage() {
                 <label className="block text-label-md font-semibold text-on-surface mb-1">Salary Range</label>
                 <input
                   type="text"
-                  value={createForm.salaryRange}
-                  onChange={(e) => setCreateForm({ ...createForm, salaryRange: e.target.value })}
-                  placeholder="e.g. $75,000 - $90,000 / yr"
-                  className="w-full h-10 px-3 rounded-xl bg-surface-container-low border border-outline-variant/30 text-body-md outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-label-md font-semibold text-on-surface mb-1">
-                  Required Skills (comma separated)
-                </label>
-                <input
-                  type="text"
-                  value={createForm.skillsRequired}
-                  onChange={(e) => setCreateForm({ ...createForm, skillsRequired: e.target.value })}
-                  placeholder="React, TypeScript, Next.js, PostgreSQL"
+                  value={createForm.salary}
+                  onChange={(e) => setCreateForm({ ...createForm, salary: e.target.value })}
+                  placeholder="e.g. ₹8,00,000 - ₹12,00,000 / yr"
                   className="w-full h-10 px-3 rounded-xl bg-surface-container-low border border-outline-variant/30 text-body-md outline-none"
                 />
               </div>
@@ -448,7 +539,7 @@ export default function JobsPage() {
                   required
                   value={createForm.jobDescription}
                   onChange={(e) => setCreateForm({ ...createForm, jobDescription: e.target.value })}
-                  placeholder="Describe key responsibilities and team benefits..."
+                  placeholder="Describe key responsibilities, required qualifications, and company culture..."
                   className="w-full p-3 rounded-xl bg-surface-container-low border border-outline-variant/30 text-body-md outline-none resize-none"
                 />
               </div>

@@ -27,13 +27,14 @@ export const updateMyProfile = async (req: Request, res: Response, next: NextFun
       return;
     }
     const womanId = req.user.womanId || (await womenService.getWomanByUserId(req.user.userId)).woman_id;
-    const { fullName, phone, educationLevel, address, bio } = req.body;
+    const { fullName, phone, educationLevel, address, bio, resumeUrl } = req.body;
     const updated = await womenService.updateWomanProfile(womanId, {
       fullName,
       phone,
       educationLevel,
       address,
       bio,
+      resumeUrl,
     });
     res.status(200).json({ success: true, message: 'Profile updated successfully.', data: updated });
   } catch (err) {
@@ -41,9 +42,18 @@ export const updateMyProfile = async (req: Request, res: Response, next: NextFun
   }
 };
 
-export const getWomanById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const getWomanById = async (req: Request, res: Response, next: NextFunction): Promise<void | Response> => {
   try {
     const womanId = parseInt(req.params.id, 10);
+
+    // Enforce ownership: Candidate women can only view their own profile
+    if (req.user?.role === 'woman' && req.user.womanId && req.user.womanId !== womanId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Forbidden: You can only view your own profile.',
+      });
+    }
+
     const profile = await womenService.getWomanProfileById(womanId);
     res.status(200).json({ success: true, data: profile });
   } catch (err) {
@@ -60,7 +70,7 @@ export const listWomen = async (req: Request, res: Response, next: NextFunction)
       educationLevel: educationLevel as string,
       search: search as string,
     });
-    res.status(200).json({ success: true, data });
+    res.status(200).json({ success: true, count: data.women.length, data });
   } catch (err) {
     next(err);
   }
@@ -74,8 +84,14 @@ export const addSkill = async (req: Request, res: Response, next: NextFunction):
     }
     const womanId = req.user.womanId || (await womenService.getWomanByUserId(req.user.userId)).woman_id;
     const { skillId, proficiencyLevel, yearsExperience } = req.body;
-    const skill = await womenService.addSkillToWoman(womanId, { skillId, proficiencyLevel, yearsExperience });
-    res.status(201).json({ success: true, message: 'Skill added to profile.', data: skill });
+
+    const added = await womenService.addSkillToWoman(womanId, {
+      skillId: parseInt(skillId, 10),
+      proficiencyLevel,
+      yearsExperience: yearsExperience !== undefined ? parseFloat(yearsExperience) : 0,
+    });
+
+    res.status(201).json({ success: true, message: 'Skill added to profile.', data: added });
   } catch (err) {
     next(err);
   }
@@ -89,6 +105,7 @@ export const removeSkill = async (req: Request, res: Response, next: NextFunctio
     }
     const womanId = req.user.womanId || (await womenService.getWomanByUserId(req.user.userId)).woman_id;
     const skillId = parseInt(req.params.skillId, 10);
+
     const result = await womenService.removeSkillFromWoman(womanId, skillId);
     res.status(200).json(result);
   } catch (err) {

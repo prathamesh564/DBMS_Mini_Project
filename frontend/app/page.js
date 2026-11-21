@@ -22,8 +22,12 @@ export default function HomePage() {
           api.jobs.list(),
         ]);
 
-        if (programsRes.status === 'fulfilled' && programsRes.value?.data?.length > 0) {
-          setTrainingPrograms(programsRes.value.data.slice(0, 4));
+        const fetchedPrograms = programsRes.status === 'fulfilled'
+          ? (Array.isArray(programsRes.value?.data) ? programsRes.value.data : (programsRes.value?.data?.programs || []))
+          : [];
+
+        if (fetchedPrograms.length > 0) {
+          setTrainingPrograms(fetchedPrograms.slice(0, 4));
         } else {
           // Fallback to high-fidelity Stitch Design 1 curated tracks
           setTrainingPrograms([
@@ -70,8 +74,12 @@ export default function HomePage() {
           ]);
         }
 
-        if (jobsRes.status === 'fulfilled' && jobsRes.value?.data?.length > 0) {
-          setJobs(jobsRes.value.data.slice(0, 4));
+        const fetchedJobs = jobsRes.status === 'fulfilled'
+          ? (Array.isArray(jobsRes.value?.data) ? jobsRes.value.data : (jobsRes.value?.data?.jobs || []))
+          : [];
+
+        if (fetchedJobs.length > 0) {
+          setJobs(fetchedJobs.slice(0, 4));
         } else {
           // Fallback to high-fidelity Stitch Design 1 curated jobs
           setJobs([
@@ -544,12 +552,12 @@ export default function HomePage() {
           </div>
 
           <div>
-            <h4 className="font-label-lg font-bold text-on-surface mb-3">Employment</h4>
+            <h4 className="font-label-lg font-bold text-on-surface mb-3">Employment & Skills</h4>
             <ul className="space-y-2 text-body-sm text-on-surface-variant">
               <li><Link href="/jobs" className="hover:text-primary transition-colors">Browse Job Openings</Link></li>
               <li><Link href="/applications" className="hover:text-primary transition-colors">Application Tracking</Link></li>
-              <li><Link href="/interviews" className="hover:text-primary transition-colors">Interview Schedules</Link></li>
-              <li><Link href="/certifications" className="hover:text-primary transition-colors">Verified Credentials</Link></li>
+              <li><Link href="/skills" className="hover:text-primary transition-colors">Skills Portfolio</Link></li>
+              <li><Link href="/training" className="hover:text-primary transition-colors">Vocational Pathways</Link></li>
             </ul>
           </div>
 
