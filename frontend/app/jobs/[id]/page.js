@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { api, getStoredUser } from '../../../services/api';
 import StatusBadge from '../../../components/StatusBadge';
+import Sidebar from '../../../components/Sidebar';
 
 export default function JobDetailsPage() {
   const params = useParams();
@@ -13,19 +14,27 @@ export default function JobDetailsPage() {
 
   const [job, setJob] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [hasApplied, setHasApplied] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
   const [feedback, setFeedback] = useState(null);
 
   useEffect(() => {
+    setUser(getStoredUser());
+
     async function loadJob() {
       if (!jobId) return;
       setLoading(true);
       try {
-        const [jobRes, appsRes] = await Promise.allSettled([
-          api.jobs.getById(jobId),
-          api.applications.getMyApplications(),
-        ]);
+        const currentUser = getStoredUser();
+        const promises = [api.jobs.getById(jobId)];
+        if (currentUser) {
+          promises.push(api.applications.getMyApplications());
+        }
+        const results = await Promise.allSettled(promises);
+        const jobRes = results[0];
+        const appsRes = results[1];
 
         if (jobRes.status === 'fulfilled' && jobRes.value?.data) {
           setJob(jobRes.value.data);
@@ -107,8 +116,24 @@ export default function JobDetailsPage() {
   }
 
   return (
-    <div className="w-full bg-surface min-h-screen py-10 px-6 lg:px-12">
-      <div className="max-w-4xl mx-auto space-y-8">
+    <div className="min-h-screen bg-surface flex">
+      <Sidebar user={user} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+
+      <div className="flex-1 lg:pl-64 flex flex-col min-w-0">
+        {/* Mobile Header Bar */}
+        <div className="lg:hidden flex items-center justify-between p-4 bg-surface border-b border-outline-variant/15">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="p-2 rounded-xl text-on-surface-variant hover:bg-surface-container-low flex items-center gap-2"
+          >
+            <span className="material-symbols-outlined text-[24px]">menu</span>
+            <span className="font-label-md font-bold text-on-surface">Menu</span>
+          </button>
+          <span className="font-headline-sm text-primary font-bold">Job Details</span>
+        </div>
+
+        <div className="w-full bg-surface min-h-screen py-10 px-6 lg:px-12">
+          <div className="max-w-4xl mx-auto space-y-8">
         
         {/* Navigation Breadcrumb */}
         <div className="flex items-center gap-2 text-body-sm text-on-surface-variant">
@@ -225,8 +250,9 @@ export default function JobDetailsPage() {
               </div>
             </div>
           )}
+        </div>
 
-          <div className="p-4 rounded-xl bg-surface-container-low border border-outline-variant/10 space-y-2">
+        <div className="p-4 rounded-xl bg-surface-container-low border border-outline-variant/10 space-y-2">
             <div className="flex items-center gap-2 text-primary font-bold">
               <span className="material-symbols-outlined text-[20px]">verified</span>
               <span>EmpowerHer Diversity & Fair Pay Guarantee</span>
@@ -235,8 +261,8 @@ export default function JobDetailsPage() {
               This employer has pledged salary transparency, equal opportunity compensation benchmarks, and structured mentorship programs for incoming female engineering talents.
             </p>
           </div>
+          </div>
         </div>
-
       </div>
     </div>
   );

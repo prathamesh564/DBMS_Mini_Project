@@ -16,7 +16,10 @@ export const listEnrollments = async (req: Request, res: Response, next: NextFun
       offset: offset as string,
     });
     res.status(200).json({ success: true, count: enrollments.length, data: enrollments });
-  } catch (err) {
+  } catch (err: any) {
+    if (err.message && (err.message.includes('Assessment score') || err.message.includes('not found'))) {
+      err.status = err.message.includes('not found') ? 404 : 400;
+    }
     next(err);
   }
 };
@@ -26,10 +29,16 @@ export const getEnrollmentById = async (req: Request, res: Response, next: NextF
     const enrollmentId = parseInt(req.params.id, 10);
     const sql = `
       SELECT e.*, COALESCE(e.assessment_score, e.score) AS score,
-             w.full_name, w.email AS woman_email, w.phone AS woman_phone,
-             tp.program_name, tp.duration_weeks, tp.provider_name
+             COALESCE(NULLIF(TRIM(w.full_name), ''), NULLIF(TRIM(up.email), ''), 'Candidate') AS candidate_name,
+             COALESCE(NULLIF(TRIM(w.full_name), ''), NULLIF(TRIM(up.email), ''), 'Candidate') AS full_name,
+             COALESCE(w.email, up.email) AS email,
+             COALESCE(w.email, up.email) AS woman_email,
+             w.phone AS phone,
+             w.phone AS woman_phone,
+             tp.program_name, tp.duration_weeks, tp.provider_name, tp.created_by, tp.user_id AS provider_user_id
       FROM women_skill_portal.enrollments e
       JOIN women_skill_portal.women w ON e.woman_id = w.woman_id
+      LEFT JOIN women_skill_portal.user_profiles up ON w.user_id = up.user_id
       JOIN women_skill_portal.training_programs tp ON e.program_id = tp.program_id
       WHERE e.enrollment_id = $1;
     `;
@@ -49,7 +58,10 @@ export const getEnrollmentById = async (req: Request, res: Response, next: NextF
     }
 
     res.status(200).json({ success: true, data: enrollment });
-  } catch (err) {
+  } catch (err: any) {
+    if (err.message && (err.message.includes('Assessment score') || err.message.includes('not found'))) {
+      err.status = err.message.includes('not found') ? 404 : 400;
+    }
     next(err);
   }
 };
@@ -65,7 +77,10 @@ export const updateEnrollmentStatus = async (req: Request, res: Response, next: 
       completionDate,
     });
     res.status(200).json({ success: true, message: 'Enrollment status updated.', data: updated });
-  } catch (err) {
+  } catch (err: any) {
+    if (err.message && (err.message.includes('Assessment score') || err.message.includes('not found'))) {
+      err.status = err.message.includes('not found') ? 404 : 400;
+    }
     next(err);
   }
 };

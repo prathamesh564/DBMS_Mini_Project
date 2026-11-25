@@ -68,8 +68,13 @@ export const updateJob = async (req: Request, res: Response, next: NextFunction)
 export const deleteJob = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const jobId = parseInt(req.params.id, 10);
-    await jobsService.deleteJob(jobId);
-    res.status(200).json({ success: true, message: 'Job deleted successfully.' });
+    const result = await jobsService.deleteJob(jobId);
+    res.status(200).json({
+      success: true,
+      action: result.action,
+      message: result.message,
+      data: result.job,
+    });
   } catch (err) {
     next(err);
   }

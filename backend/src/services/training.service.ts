@@ -257,15 +257,45 @@ export const updateProgram = async (
 /**
  * Delete a program
  */
-export const deleteProgram = async (programId: number, userId: number, role: UserRole | undefined): Promise<boolean> => {
+export const deleteProgram = async (
+  programId: number,
+  userId: number,
+  role: UserRole | undefined
+): Promise<{ action: 'deleted' | 'cancelled'; message: string; program?: any }> => {
   const current = await getProgramById(programId);
 
   if (role !== 'admin' && current.created_by !== userId && current.user_id !== userId) {
     throw new Error('Forbidden: You can only delete training programs created by your account.');
   }
 
+  // Check existing enrollments before attempting deletion
+  const enrCountRes = await query<{ count: string }>(
+    `SELECT COUNT(*) AS count FROM women_skill_portal.enrollments WHERE program_id = $1`,
+    [programId]
+  );
+  const enrollmentCount = parseInt(enrCountRes.rows[0].count, 10);
+
+  if (enrollmentCount > 0) {
+    // Preserve candidate enrollment records safely without cascading deletion
+    const updateRes = await query(
+      `UPDATE women_skill_portal.training_programs
+       SET status = 'Cancelled', updated_at = CURRENT_TIMESTAMP
+       WHERE program_id = $1
+       RETURNING *`,
+      [programId]
+    );
+    return {
+      action: 'cancelled',
+      message: `Training program has ${enrollmentCount} candidate enrollment(s). It has been marked as Cancelled to preserve learner records.`,
+      program: updateRes.rows[0],
+    };
+  }
+
   await query(`DELETE FROM women_skill_portal.training_programs WHERE program_id = $1`, [programId]);
-  return true;
+  return {
+    action: 'deleted',
+    message: 'Training program deleted successfully from database.',
+  };
 };
 
 /**
@@ -367,10 +397,17 @@ export const getEnrollments = async ({
     SELECT e.enrollment_id, e.enrollment_date, e.completion_status, e.completion_date,
            COALESCE(e.assessment_score, e.score) AS score,
            e.assessment_score,
-           w.woman_id, w.full_name, w.email AS woman_email, w.phone AS woman_phone,
-           tp.program_id, tp.program_name, tp.duration_weeks, tp.provider_name, tp.created_by
+           w.woman_id,
+           COALESCE(NULLIF(TRIM(w.full_name), ''), NULLIF(TRIM(up.email), ''), 'Candidate') AS candidate_name,
+           COALESCE(NULLIF(TRIM(w.full_name), ''), NULLIF(TRIM(up.email), ''), 'Candidate') AS full_name,
+           COALESCE(w.email, up.email) AS email,
+           COALESCE(w.email, up.email) AS woman_email,
+           w.phone AS phone,
+           w.phone AS woman_phone,
+           tp.program_id, tp.program_name, tp.duration_weeks, tp.provider_name, tp.created_by, tp.user_id AS provider_user_id
     FROM women_skill_portal.enrollments e
     JOIN women_skill_portal.women w ON e.woman_id = w.woman_id
+    LEFT JOIN women_skill_portal.user_profiles up ON w.user_id = up.user_id
     JOIN women_skill_portal.training_programs tp ON e.program_id = tp.program_id
     ${whereClause}
     ORDER BY e.enrollment_date DESC
@@ -411,8 +448,11 @@ export const updateEnrollment = async (
   }
 
   const numericScore = assessmentScore !== undefined ? assessmentScore : score;
-  if (numericScore !== undefined && numericScore !== null) {
+  if (numericScore !== undefined && numericScore !== null && String(numericScore).trim() !== '') {
     const val = parseFloat(String(numericScore));
+    if (isNaN(val) || val < 0 || val > 100) {
+      throw new Error('Assessment score must be a valid number between 0 and 100.');
+    }
     fields.push(`score = $${idx++}`);
     params.push(val);
     fields.push(`assessment_score = $${idx++}`);

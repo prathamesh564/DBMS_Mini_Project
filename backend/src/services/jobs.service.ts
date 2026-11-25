@@ -52,8 +52,12 @@ export const getAllJobs = async ({
   let idx = 1;
 
   if (status && status !== 'all') {
-    conditions.push(`jp.status = $${idx++}`);
-    params.push(status);
+    if (status.toLowerCase() === 'open' || status.toLowerCase() === 'active') {
+      conditions.push(`(jp.status = 'Open' OR jp.status = 'active')`);
+    } else {
+      conditions.push(`jp.status ILIKE $${idx++}`);
+      params.push(status);
+    }
   }
 
   if (location) {
@@ -153,6 +157,28 @@ export const createJob = async (
 ): Promise<any> => {
   const finalLocation = location || jobLocation || 'Remote';
 
+  let finalStatus: JobStatus = 'Open';
+  if (status) {
+    const s = String(status).trim().toLowerCase();
+    if (s === 'active' || s === 'open') finalStatus = 'Open';
+    else if (s === 'closed') finalStatus = 'Closed';
+    else if (s === 'paused') finalStatus = 'Paused';
+    else if (s === 'draft') finalStatus = 'Draft';
+  }
+
+  let parsedSalary: number | null = null;
+  if (salary !== undefined && salary !== null && String(salary).trim() !== '') {
+    // Extract the first number/range start from string (e.g. "₹8,00,000 - ₹12,00,000 / yr" -> 800000)
+    const match = String(salary).match(/[\d,]+(?:\.\d+)?/);
+    if (match) {
+      const cleaned = match[0].replace(/,/g, '');
+      const num = parseFloat(cleaned);
+      if (!isNaN(num) && num >= 0 && num < 100000000) {
+        parsedSalary = num;
+      }
+    }
+  }
+
   const res = await query<JobPosting>(
     `INSERT INTO women_skill_portal.job_postings
       (job_title, job_description, company_name, salary, location, job_location, employment_type, deadline, status, posted_by, user_id)
@@ -162,12 +188,12 @@ export const createJob = async (
       jobTitle.trim(),
       jobDescription.trim(),
       companyName?.trim() || 'EmpowerHer Partner',
-      salary !== undefined && salary !== null ? parseFloat(String(salary)) : null,
+      parsedSalary,
       finalLocation,
       finalLocation,
       employmentType || 'Full-Time',
       deadline || null,
-      status || 'Open',
+      finalStatus,
       userId,
       userId,
     ]
@@ -243,13 +269,48 @@ export const updateJob = async (
   return getJobById(jobId);
 };
 
+export interface DeleteJobResult {
+  action: 'deleted' | 'closed';
+  message: string;
+  job?: any;
+}
+
 /**
  * Delete a job (Admin only)
+ * Safely handles foreign key constraints: if candidates have applied, closes the job to preserve records.
  */
-export const deleteJob = async (jobId: number): Promise<boolean> => {
-  await getJobById(jobId);
+export const deleteJob = async (jobId: number): Promise<DeleteJobResult> => {
+  const job = await getJobById(jobId);
+
+  // Check if candidate applications reference this job
+  const appCountRes = await query<{ count: string }>(
+    `SELECT COUNT(*) AS count FROM women_skill_portal.job_applications WHERE job_id = $1`,
+    [jobId]
+  );
+  const applicantCount = parseInt(appCountRes.rows[0].count, 10);
+
+  if (applicantCount > 0) {
+    // Preserve job and candidate applications by closing the posting
+    await query(
+      `UPDATE women_skill_portal.job_postings
+       SET status = 'Closed', updated_at = CURRENT_TIMESTAMP
+       WHERE job_id = $1`,
+      [jobId]
+    );
+    const updatedJob = await getJobById(jobId);
+    return {
+      action: 'closed',
+      message: `Job posting has ${applicantCount} active candidate application(s). It has been closed rather than deleted to preserve application records.`,
+      job: updatedJob,
+    };
+  }
+
+  // If no applications, physically delete the posting
   await query(`DELETE FROM women_skill_portal.job_postings WHERE job_id = $1`, [jobId]);
-  return true;
+  return {
+    action: 'deleted',
+    message: 'Job posting permanently deleted successfully.',
+  };
 };
 
 /**

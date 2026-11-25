@@ -4,12 +4,14 @@ import { useState, useEffect } from 'react';
 import { api, getStoredUser } from '../../services/api';
 import TrainingCard from '../../components/TrainingCard';
 import StatusBadge from '../../components/StatusBadge';
+import Sidebar from '../../components/Sidebar';
 
 export default function TrainingPage() {
   const [courses, setCourses] = useState([]);
   const [filteredCourses, setFilteredCourses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('catalog');
 
   // Candidate enrollments state
@@ -216,9 +218,9 @@ export default function TrainingPage() {
   }
 
   useEffect(() => {
-    if (activeTab === 'my-enrollments') {
+    if (activeTab === 'my-enrollments' && myEnrollments.length === 0) {
       loadMyEnrollments();
-    } else if (activeTab === 'enrollment-monitor' || activeTab === 'enrolled-students') {
+    } else if ((activeTab === 'enrollment-monitor' || activeTab === 'enrolled-students') && allEnrollments.length === 0) {
       loadAllEnrollments();
     }
   }, [activeTab]);
@@ -310,30 +312,37 @@ export default function TrainingPage() {
       setFeedback({ type: 'success', text: 'Training program published successfully!' });
       await loadPrograms();
     } catch (err) {
-      alert(err.message || 'Failed to create program.');
+      setFeedback({ type: 'error', text: err.message || 'Failed to create program.' });
     } finally {
       setIsCreating(false);
     }
   };
 
   const handleDeleteProgram = async (programId) => {
-    if (!confirm('Are you sure you want to remove this training program? Existing enrollments will be preserved.')) return;
+    if (!confirm('Are you sure you want to remove this training program? This action cannot be undone.')) return;
     try {
-      await api.training.deleteProgram(programId);
-      setFeedback({ type: 'success', text: 'Program removed successfully.' });
+      const res = await api.training.deleteProgram(programId);
+      setCourses((prev) => prev.filter((p) => (p.program_id || p.id) !== programId));
+      setFilteredCourses((prev) => prev.filter((p) => (p.program_id || p.id) !== programId));
+      setFeedback({ type: 'success', text: res?.message || 'Program removed successfully.' });
       await loadPrograms();
     } catch (err) {
-      alert(err.message || 'Failed to delete program.');
+      setFeedback({ type: 'error', text: err.message || 'Failed to delete program.' });
     }
   };
 
   const handleUpdateEnrollment = async (enrollmentId, completionStatus, assessmentScore) => {
     setUpdatingEnrollmentId(enrollmentId);
     try {
+      const parsedScore =
+        assessmentScore !== '' && assessmentScore !== null && assessmentScore !== undefined && !isNaN(Number(assessmentScore))
+          ? Math.min(100, Math.max(0, parseInt(String(assessmentScore), 10)))
+          : null;
+
       await api.enrollments.updateStatus(enrollmentId, {
         completionStatus,
-        assessmentScore: assessmentScore !== '' ? parseInt(assessmentScore, 10) : null,
-        score: assessmentScore !== '' ? parseInt(assessmentScore, 10) : null,
+        assessmentScore: parsedScore,
+        score: parsedScore,
       });
 
       setAllEnrollments((prev) =>
@@ -342,23 +351,39 @@ export default function TrainingPage() {
             ? {
                 ...item,
                 completion_status: completionStatus,
-                assessment_score: assessmentScore !== '' ? parseInt(assessmentScore, 10) : item.assessment_score,
-                score: assessmentScore !== '' ? parseInt(assessmentScore, 10) : item.score,
+                assessment_score: parsedScore !== null ? parsedScore : item.assessment_score,
+                score: parsedScore !== null ? parsedScore : item.score,
               }
             : item
         )
       );
       setFeedback({ type: 'success', text: 'Candidate progress and assessment score saved!' });
     } catch (err) {
-      alert(err.message || 'Failed to update candidate progress.');
+      setFeedback({ type: 'error', text: err.message || 'Failed to update candidate progress.' });
     } finally {
       setUpdatingEnrollmentId(null);
     }
   };
 
   return (
-    <div className="w-full bg-surface min-h-screen">
-      <div className="w-full max-w-7xl mx-auto px-6 lg:px-12 py-8 space-y-8">
+    <div className="min-h-screen bg-surface flex">
+      <Sidebar user={user} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+
+      <div className="flex-1 lg:pl-64 flex flex-col min-w-0">
+        {/* Mobile Header Bar */}
+        <div className="lg:hidden flex items-center justify-between p-4 bg-surface border-b border-outline-variant/15">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="p-2 rounded-xl text-on-surface-variant hover:bg-surface-container-low flex items-center gap-2"
+          >
+            <span className="material-symbols-outlined text-[24px]">menu</span>
+            <span className="font-label-md font-bold text-on-surface">Menu</span>
+          </button>
+          <span className="font-headline-sm text-primary font-bold">Training Programs</span>
+        </div>
+
+        <div className="w-full bg-surface min-h-screen">
+          <div className="w-full max-w-7xl mx-auto px-6 lg:px-12 py-8 space-y-8">
         
         {/* HERO BANNER */}
         <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-primary via-primary-container to-[#3a0d9e] p-8 lg:p-12 text-on-primary shadow-xl border border-white/10">
@@ -727,7 +752,10 @@ export default function TrainingPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-outline-variant/10 text-on-surface">
-                    {courses.map((c) => (
+                    {(activeTab === 'my-programs' && user?.role === 'training_provider'
+                      ? courses.filter((c) => c.created_by === user?.userId || c.user_id === user?.userId || (!c.created_by && c.provider === (user?.name || user?.email?.split('@')[0])))
+                      : courses
+                    ).map((c) => (
                       <tr key={c.id} className="hover:bg-surface-container-low/50 transition-colors">
                         <td className="py-3 px-6">
                           <p className="font-bold text-on-surface text-sm">{c.name}</p>
@@ -742,12 +770,14 @@ export default function TrainingPage() {
                         </td>
                         <td className="py-3 px-6">{c.mode}</td>
                         <td className="py-3 px-6 text-right">
-                          <button
-                            onClick={() => handleDeleteProgram(c.program_id || c.id)}
-                            className="px-3 py-1.5 rounded-lg border border-rose-200 text-rose-700 hover:bg-rose-50 text-[11px] font-semibold transition-colors"
-                          >
-                            Delete
-                          </button>
+                          {(c.created_by === user?.userId || c.user_id === user?.userId || user?.role === 'admin' || (!c.created_by && c.provider === (user?.name || user?.email?.split('@')[0]))) && (
+                            <button
+                              onClick={() => handleDeleteProgram(c.program_id || c.id)}
+                              className="px-3 py-1.5 rounded-lg border border-rose-200 text-rose-700 hover:bg-rose-50 text-[11px] font-semibold transition-colors"
+                            >
+                              Delete
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -1076,13 +1106,15 @@ export default function TrainingPage() {
           </div>
         </div>
       )}
+        </div>
+      </div>
     </div>
   );
 }
 
 // Sub-component for interactive enrollment score & status row
 function EnrollmentRow({ enrollment, onSave, isSaving }) {
-  const [status, setStatus] = useState(enrollment.completion_status || 'in-progress');
+  const [status, setStatus] = useState(enrollment.completion_status || 'In Progress');
   const [score, setScore] = useState(
     enrollment.assessment_score != null ? enrollment.assessment_score : enrollment.score != null ? enrollment.score : ''
   );
@@ -1091,9 +1123,16 @@ function EnrollmentRow({ enrollment, onSave, isSaving }) {
     <tr className="hover:bg-surface-container-low/50 transition-colors">
       <td className="py-3 px-6">
         <p className="font-bold text-on-surface text-sm">
-          {enrollment.candidate_name || enrollment.woman_name || enrollment.email || 'Candidate'}
+          {enrollment.candidate_name || enrollment.full_name || enrollment.woman_name || 'Candidate'}
         </p>
-        <p className="text-[11px] text-on-surface-variant">{enrollment.email}</p>
+        <p className="text-[11px] text-on-surface-variant">
+          {enrollment.email || enrollment.woman_email || ''}
+        </p>
+        {(enrollment.phone || enrollment.woman_phone) && (
+          <p className="text-[11px] text-on-surface-variant/80">
+            {enrollment.phone || enrollment.woman_phone}
+          </p>
+        )}
       </td>
       <td className="py-3 px-6 font-semibold text-primary">{enrollment.program_name}</td>
       <td className="py-3 px-6 text-on-surface-variant">
@@ -1105,9 +1144,10 @@ function EnrollmentRow({ enrollment, onSave, isSaving }) {
           onChange={(e) => setStatus(e.target.value)}
           className="text-xs px-2.5 py-1 rounded-lg bg-surface-container border border-outline-variant/30 text-on-surface outline-none"
         >
-          <option value="in-progress">In Progress</option>
-          <option value="completed">Completed</option>
-          <option value="dropped">Dropped</option>
+          <option value="Enrolled">Enrolled</option>
+          <option value="In Progress">In Progress</option>
+          <option value="Completed">Completed</option>
+          <option value="Dropped">Dropped</option>
         </select>
       </td>
       <td className="py-3 px-6">

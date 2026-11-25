@@ -1,12 +1,28 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { clearAuth } from '../services/api';
+import { clearAuth, getStoredUser } from '../services/api';
 
-export default function Sidebar({ user, isOpen, onClose }) {
+export default function Sidebar({ user: propUser, isOpen, onClose }) {
   const pathname = usePathname();
   const router = useRouter();
+  const [user, setUser] = useState(propUser || null);
+
+  useEffect(() => {
+    setUser(propUser || getStoredUser());
+
+    const handleAuthChange = () => {
+      setUser(getStoredUser());
+    };
+    window.addEventListener('storage', handleAuthChange);
+    window.addEventListener('empowerher_auth_changed', handleAuthChange);
+    return () => {
+      window.removeEventListener('storage', handleAuthChange);
+      window.removeEventListener('empowerher_auth_changed', handleAuthChange);
+    };
+  }, [propUser]);
 
   const handleLogout = () => {
     clearAuth();
@@ -131,13 +147,23 @@ export default function Sidebar({ user, isOpen, onClose }) {
           </div>
         </div>
 
-        <button
-          onClick={handleLogout}
-          className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl border border-outline-variant/20 text-on-surface-variant hover:text-error hover:bg-error-container/10 transition-colors text-label-md font-medium"
-        >
-          <span className="material-symbols-outlined text-[18px]">logout</span>
-          <span>Sign Out</span>
-        </button>
+        {user ? (
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl border border-outline-variant/20 text-on-surface-variant hover:text-error hover:bg-error-container/10 transition-colors text-label-md font-medium"
+          >
+            <span className="material-symbols-outlined text-[18px]">logout</span>
+            <span>Sign Out</span>
+          </button>
+        ) : (
+          <Link
+            href="/login"
+            className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-primary-container text-on-primary font-semibold text-label-md shadow-xs hover:bg-primary transition-colors"
+          >
+            <span className="material-symbols-outlined text-[18px]">login</span>
+            <span>Sign In</span>
+          </Link>
+        )}
       </div>
     </div>
   );

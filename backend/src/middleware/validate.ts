@@ -72,13 +72,34 @@ export const validateIntParam = (paramName: string = 'id') => {
 
 /**
  * Validate field value against allowed enum values
+ * Automatically normalizes case-insensitive or hyphenated variants
  * @param field - Field name
  * @param allowedValues - Array of allowed values
  */
 export const validateEnum = (field: string, allowedValues: string[] = []) => {
   return (req: Request, res: Response, next: NextFunction): void | Response => {
     const val = req.body[field];
-    if (val !== undefined && val !== null && !allowedValues.includes(val)) {
+    if (val !== undefined && val !== null) {
+      if (allowedValues.includes(val)) {
+        return next();
+      }
+
+      // Normalization check: case-insensitive, hyphen-to-space, or space-to-hyphen
+      const strVal = String(val).trim().toLowerCase();
+      const matched = allowedValues.find((allowed) => {
+        const strAllowed = allowed.toLowerCase();
+        return (
+          strAllowed === strVal ||
+          strAllowed.replace(/\s+/g, '-') === strVal ||
+          strAllowed === strVal.replace(/-/g, ' ')
+        );
+      });
+
+      if (matched) {
+        req.body[field] = matched;
+        return next();
+      }
+
       return res.status(400).json({
         success: false,
         message: `Invalid value for field '${field}'. Allowed values: [${allowedValues.join(', ')}]. Received: '${val}'.`,

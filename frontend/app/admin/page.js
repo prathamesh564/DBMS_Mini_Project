@@ -192,7 +192,7 @@ export default function AdminPage() {
       });
       setSelectedUserForRole(null);
     } catch (err) {
-      alert(err.message || 'Failed to update user role.');
+      setFeedback({ type: 'error', message: err.message || 'Failed to update user role.' });
     } finally {
       setUpdating(false);
     }
@@ -201,13 +201,20 @@ export default function AdminPage() {
   const handleCreateSkill = async (e) => {
     e.preventDefault();
     try {
-      await api.skills.create(skillForm);
+      const res = await api.skills.create(skillForm);
       setShowSkillModal(false);
       setSkillForm({ skillName: '', category: 'Technical', description: '' });
       setFeedback({ type: 'success', message: 'New master skill added to taxonomy.' });
-      loadAllAdminData();
+      if (res?.data) {
+        setSkills((prev) => [res.data, ...prev]);
+      } else {
+        const skillsRes = await api.skills.getAll();
+        const rawSkills = Array.isArray(skillsRes?.data) ? skillsRes.data : (skillsRes?.data?.skills || []);
+        setSkills(rawSkills);
+      }
+      api.admin.getStatistics().then((sRes) => sRes?.data && setStats(sRes.data)).catch(() => {});
     } catch (err) {
-      alert(err.message || 'Failed to create skill.');
+      setFeedback({ type: 'error', message: err.message || 'Failed to create skill.' });
     }
   };
 
@@ -217,47 +224,77 @@ export default function AdminPage() {
       await api.skills.delete(id);
       setSkills((prev) => prev.filter((s) => (s.skill_id || s.id) !== id));
       setFeedback({ type: 'success', message: 'Skill removed.' });
+      api.admin.getStatistics().then((sRes) => sRes?.data && setStats(sRes.data)).catch(() => {});
     } catch (err) {
-      alert(err.message || 'Failed to delete skill.');
+      setFeedback({ type: 'error', message: err.message || 'Failed to delete skill.' });
     }
   };
 
   const handleCreateJob = async (e) => {
     e.preventDefault();
     try {
-      await api.jobs.create(jobForm);
+      const res = await api.jobs.create({
+        ...jobForm,
+        status: 'Open',
+      });
       setShowJobModal(false);
       setFeedback({ type: 'success', message: 'Job posting published.' });
-      loadAllAdminData();
+      if (res?.data) {
+        setJobs((prev) => [res.data, ...prev.filter((j) => (j.job_id || j.id) !== (res.data.job_id || res.data.id))]);
+      }
+      const jobsRes = await api.jobs.list();
+      const rawJobs = Array.isArray(jobsRes?.data) ? jobsRes.data : (jobsRes?.data?.jobs || []);
+      if (rawJobs.length > 0) {
+        setJobs(rawJobs);
+      }
+      api.admin.getStatistics().then((sRes) => sRes?.data && setStats(sRes.data)).catch(() => {});
     } catch (err) {
-      alert(err.message || 'Failed to create job.');
+      setFeedback({ type: 'error', message: err.message || 'Failed to create job.' });
     }
   };
 
   const handleDeleteJob = async (id) => {
     if (!confirm('Are you sure you want to delete this job posting?')) return;
     try {
-      await api.jobs.delete(id);
-      setJobs((prev) => prev.filter((j) => (j.job_id || j.id) !== id));
-      setFeedback({ type: 'success', message: 'Job deleted.' });
+      const res = await api.jobs.delete(id);
+      if (res?.action === 'closed') {
+        setJobs((prev) =>
+          prev.map((j) => ((j.job_id || j.id) === id ? { ...j, status: 'Closed' } : j))
+        );
+        setFeedback({
+          type: 'info',
+          message: res.message || 'Job has active applicant records; its status was updated to Closed.',
+        });
+      } else {
+        setJobs((prev) => prev.filter((j) => (j.job_id || j.id) !== id));
+        setFeedback({ type: 'success', message: res?.message || 'Job deleted.' });
+      }
+      api.admin.getStatistics().then((sRes) => sRes?.data && setStats(sRes.data)).catch(() => {});
     } catch (err) {
-      alert(err.message || 'Failed to delete job.');
+      setFeedback({ type: 'error', message: err.message || 'Failed to delete job.' });
     }
   };
 
   const handleCreateProgram = async (e) => {
     e.preventDefault();
     try {
-      await api.training.createProgram({
+      const res = await api.training.createProgram({
         ...programForm,
         durationWeeks: parseInt(programForm.durationWeeks, 10),
         courseFee: parseFloat(programForm.courseFee),
       });
       setShowProgramModal(false);
       setFeedback({ type: 'success', message: 'Training program published.' });
-      loadAllAdminData();
+      if (res?.data) {
+        setPrograms((prev) => [res.data, ...prev]);
+      } else {
+        const progRes = await api.training.listPrograms();
+        const rawProg = Array.isArray(progRes?.data) ? progRes.data : (progRes?.data?.programs || []);
+        setPrograms(rawProg);
+      }
+      api.admin.getStatistics().then((sRes) => sRes?.data && setStats(sRes.data)).catch(() => {});
     } catch (err) {
-      alert(err.message || 'Failed to create program.');
+      setFeedback({ type: 'error', message: err.message || 'Failed to create program.' });
     }
   };
 
@@ -267,8 +304,9 @@ export default function AdminPage() {
       await api.training.deleteProgram(id);
       setPrograms((prev) => prev.filter((p) => (p.program_id || p.id) !== id));
       setFeedback({ type: 'success', message: 'Program deleted.' });
+      api.admin.getStatistics().then((sRes) => sRes?.data && setStats(sRes.data)).catch(() => {});
     } catch (err) {
-      alert(err.message || 'Failed to delete program.');
+      setFeedback({ type: 'error', message: err.message || 'Failed to delete program.' });
     }
   };
 
@@ -280,27 +318,37 @@ export default function AdminPage() {
       );
       setFeedback({ type: 'success', message: `Application status updated to ${newStatus}.` });
     } catch (err) {
-      alert(err.message || 'Status update failed.');
+      setFeedback({ type: 'error', message: err.message || 'Status update failed.' });
     }
   };
 
   const handleEnrollmentUpdate = async (enrollmentId, completionStatus, assessmentScore) => {
     try {
+      const parsedScore =
+        assessmentScore !== '' && assessmentScore !== null && assessmentScore !== undefined && !isNaN(Number(assessmentScore))
+          ? Math.min(100, Math.max(0, parseInt(String(assessmentScore), 10)))
+          : null;
+
       await api.enrollments.updateStatus(enrollmentId, {
         completionStatus,
-        assessmentScore: assessmentScore !== '' ? parseInt(assessmentScore, 10) : null,
-        score: assessmentScore !== '' ? parseInt(assessmentScore, 10) : null,
+        assessmentScore: parsedScore,
+        score: parsedScore,
       });
       setEnrollments((prev) =>
         prev.map((e) =>
           e.enrollment_id === enrollmentId
-            ? { ...e, completion_status: completionStatus, assessment_score: assessmentScore }
+            ? {
+                ...e,
+                completion_status: completionStatus,
+                assessment_score: parsedScore !== null ? parsedScore : e.assessment_score,
+                score: parsedScore !== null ? parsedScore : e.score,
+              }
             : e
         )
       );
       setFeedback({ type: 'success', message: 'Candidate enrollment progress saved.' });
     } catch (err) {
-      alert(err.message || 'Failed to update enrollment.');
+      setFeedback({ type: 'error', message: err.message || 'Failed to update enrollment.' });
     }
   };
 
@@ -1238,7 +1286,7 @@ export default function AdminPage() {
 
 // Sub-component for interactive enrollment score row in Admin
 function EnrollmentAdminRow({ enrollment, onSave }) {
-  const [status, setStatus] = useState(enrollment.completion_status || 'in-progress');
+  const [status, setStatus] = useState(enrollment.completion_status || 'In Progress');
   const [score, setScore] = useState(
     enrollment.assessment_score != null ? enrollment.assessment_score : enrollment.score != null ? enrollment.score : ''
   );
@@ -1253,8 +1301,17 @@ function EnrollmentAdminRow({ enrollment, onSave }) {
   return (
     <tr className="hover:bg-surface-container/30 transition-colors">
       <td className="px-6 py-4">
-        <p className="font-bold text-on-surface">{enrollment.candidate_name || 'Candidate'}</p>
-        <p className="text-[11px] text-on-surface-variant">{enrollment.email}</p>
+        <p className="font-bold text-on-surface">
+          {enrollment.candidate_name || enrollment.full_name || 'Candidate'}
+        </p>
+        <p className="text-[11px] text-on-surface-variant">
+          {enrollment.email || enrollment.woman_email || ''}
+        </p>
+        {(enrollment.phone || enrollment.woman_phone) && (
+          <p className="text-[11px] text-on-surface-variant/80">
+            {enrollment.phone || enrollment.woman_phone}
+          </p>
+        )}
       </td>
       <td className="px-6 py-4 font-semibold text-primary">{enrollment.program_name}</td>
       <td className="px-6 py-4 text-on-surface-variant">
@@ -1266,9 +1323,10 @@ function EnrollmentAdminRow({ enrollment, onSave }) {
           onChange={(e) => setStatus(e.target.value)}
           className="text-xs px-2.5 py-1 rounded-lg bg-surface-container border border-outline-variant/30 text-on-surface outline-none cursor-pointer"
         >
-          <option value="in-progress">In Progress</option>
-          <option value="completed">Completed</option>
-          <option value="dropped">Dropped</option>
+          <option value="Enrolled">Enrolled</option>
+          <option value="In Progress">In Progress</option>
+          <option value="Completed">Completed</option>
+          <option value="Dropped">Dropped</option>
         </select>
       </td>
       <td className="px-6 py-4">

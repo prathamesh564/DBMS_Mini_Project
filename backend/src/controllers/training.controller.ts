@@ -75,9 +75,20 @@ export const deleteProgram = async (req: Request, res: Response, next: NextFunct
     }
 
     const programId = parseInt(req.params.id, 10);
-    await trainingService.deleteProgram(programId, req.user.userId, req.user.role);
-    res.status(200).json({ success: true, message: 'Training program deleted successfully.' });
-  } catch (err) {
+    const result = await trainingService.deleteProgram(programId, req.user.userId, req.user.role);
+    res.status(200).json({
+      success: true,
+      action: result.action,
+      message: result.message,
+      data: result.program || null,
+    });
+  } catch (err: any) {
+    if (err.message && err.message.includes('Forbidden')) {
+      return res.status(403).json({ success: false, message: err.message });
+    }
+    if (err.message && err.message.includes('not found')) {
+      return res.status(404).json({ success: false, message: err.message });
+    }
     next(err);
   }
 };

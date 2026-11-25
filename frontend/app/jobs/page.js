@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { api, getStoredUser } from '../../services/api';
 import JobCard from '../../components/JobCard';
+import Sidebar from '../../components/Sidebar';
 
 export default function JobsPage() {
   const [jobs, setJobs] = useState([]);
@@ -15,6 +16,7 @@ export default function JobsPage() {
   const [feedback, setFeedback] = useState(null);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -32,7 +34,7 @@ export default function JobsPage() {
     employmentType: 'Full-time',
     salary: '₹8,00,000 - ₹12,00,000 / yr',
     deadline: '',
-    status: 'active',
+    status: 'Open',
   });
 
   useEffect(() => {
@@ -42,12 +44,15 @@ export default function JobsPage() {
     async function loadJobsAndApplications() {
       setLoading(true);
       try {
-        const [jobsRes, appsRes] = await Promise.allSettled([
-          api.jobs.list(),
-          api.applications.getMyApplications(),
-        ]);
+        const promises = [api.jobs.list()];
+        if (currentUser) {
+          promises.push(api.applications.getMyApplications());
+        }
+        const results = await Promise.allSettled(promises);
+        const jobsRes = results[0];
+        const appsRes = results[1];
 
-        if (appsRes.status === 'fulfilled' && appsRes.value?.data) {
+        if (appsRes && appsRes.status === 'fulfilled' && appsRes.value?.data) {
           const rawApps = Array.isArray(appsRes.value.data) ? appsRes.value.data : (appsRes.value.data.applications || []);
           const applied = new Set(rawApps.map((a) => a.job_id || a.jobId));
           setAppliedJobIds(applied);
@@ -198,7 +203,7 @@ export default function JobsPage() {
     setIsCreating(true);
 
     try {
-      await api.jobs.create({
+      const res = await api.jobs.create({
         companyName: createForm.companyName,
         jobTitle: createForm.jobTitle,
         jobDescription: createForm.jobDescription,
@@ -206,20 +211,37 @@ export default function JobsPage() {
         salary: createForm.salary,
         employmentType: createForm.employmentType,
         deadline: createForm.deadline || null,
-        status: createForm.status,
+        status: 'Open',
       });
 
       setShowCreateModal(false);
       setFeedback({ type: 'success', text: 'New job vacancy published successfully!' });
 
-      // Refresh jobs list
-      const res = await api.jobs.list();
-      const rawJobs = Array.isArray(res?.data) ? res.data : (res?.data?.jobs || []);
+      // Reset form
+      setCreateForm({
+        companyName: '',
+        jobTitle: '',
+        jobDescription: '',
+        location: 'Remote',
+        employmentType: 'Full-time',
+        salary: '₹8,00,000 - ₹12,00,000 / yr',
+        deadline: '',
+        status: 'Open',
+      });
+
+      // Immediately prepend newly created job to state so it appears without delay
+      if (res?.data) {
+        setJobs((prev) => [res.data, ...prev.filter((j) => (j.job_id || j.id) !== (res.data.job_id || res.data.id))]);
+      }
+
+      // Re-fetch jobs from backend to ensure persistent database synchronization
+      const listRes = await api.jobs.list();
+      const rawJobs = Array.isArray(listRes?.data) ? listRes.data : (listRes?.data?.jobs || []);
       if (rawJobs.length > 0) {
         setJobs(rawJobs);
       }
     } catch (err) {
-      alert(err.message || 'Failed to publish job.');
+      setFeedback({ type: 'error', text: err.message || 'Failed to publish job.' });
     } finally {
       setIsCreating(false);
     }
@@ -228,17 +250,43 @@ export default function JobsPage() {
   const handleDeleteJob = async (jobId) => {
     if (!confirm('Are you sure you want to remove this job posting?')) return;
     try {
-      await api.jobs.delete(jobId);
-      setJobs((prev) => prev.filter((j) => (j.job_id || j.id) !== jobId));
-      setFeedback({ type: 'success', text: 'Job posting deleted.' });
+      const res = await api.jobs.delete(jobId);
+      if (res?.action === 'closed') {
+        setJobs((prev) =>
+          prev.map((j) => ((j.job_id || j.id) === jobId ? { ...j, status: 'Closed' } : j))
+        );
+        setFeedback({
+          type: 'info',
+          text: res.message || 'Job has active applicant records; its status was updated to Closed.',
+        });
+      } else {
+        setJobs((prev) => prev.filter((j) => (j.job_id || j.id) !== jobId));
+        setFeedback({ type: 'success', text: res?.message || 'Job posting deleted.' });
+      }
     } catch (err) {
-      alert(err.message || 'Failed to delete job.');
+      setFeedback({ type: 'error', text: err.message || 'Failed to delete job.' });
     }
   };
 
   return (
-    <div className="w-full bg-surface min-h-screen">
-      <div className="w-full max-w-7xl mx-auto px-6 lg:px-12 py-8 space-y-8">
+    <div className="min-h-screen bg-surface flex">
+      <Sidebar user={user} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+
+      <div className="flex-1 lg:pl-64 flex flex-col min-w-0">
+        {/* Mobile Header Bar */}
+        <div className="lg:hidden flex items-center justify-between p-4 bg-surface border-b border-outline-variant/15">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="p-2 rounded-xl text-on-surface-variant hover:bg-surface-container-low flex items-center gap-2"
+          >
+            <span className="material-symbols-outlined text-[24px]">menu</span>
+            <span className="font-label-md font-bold text-on-surface">Menu</span>
+          </button>
+          <span className="font-headline-sm text-primary font-bold">Career Opportunities</span>
+        </div>
+
+        <div className="w-full bg-surface min-h-screen">
+          <div className="w-full max-w-7xl mx-auto px-6 lg:px-12 py-8 space-y-8">
         
         {/* Header Banner */}
         <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-primary via-primary-container to-[#3a0d9e] p-8 lg:p-12 text-on-primary shadow-xl border border-white/10">
@@ -564,6 +612,8 @@ export default function JobsPage() {
           </div>
         </div>
       )}
+        </div>
+      </div>
     </div>
   );
 }

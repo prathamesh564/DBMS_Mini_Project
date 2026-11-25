@@ -50,9 +50,13 @@ export default function DashboardPage() {
           ]);
 
           if (programsRes.status === 'fulfilled' && programsRes.value?.data?.programs) {
-            setProviderPrograms(programsRes.value.data.programs);
+            const rawProgs = programsRes.value.data.programs;
+            const myProgs = rawProgs.filter((p) => p.created_by === currentUser.userId || p.user_id === currentUser.userId);
+            setProviderPrograms(myProgs.length > 0 ? myProgs : rawProgs);
           } else if (programsRes.status === 'fulfilled' && Array.isArray(programsRes.value?.data)) {
-            setProviderPrograms(programsRes.value.data);
+            const rawProgs = programsRes.value.data;
+            const myProgs = rawProgs.filter((p) => p.created_by === currentUser.userId || p.user_id === currentUser.userId);
+            setProviderPrograms(myProgs.length > 0 ? myProgs : rawProgs);
           }
 
           if (enrollRes.status === 'fulfilled' && enrollRes.value?.data) {
@@ -130,6 +134,17 @@ export default function DashboardPage() {
       setActionMessage({ type: 'error', text: err.message || 'Failed to update candidate progress.' });
     } finally {
       setIsUpdatingStatus(false);
+    }
+  };
+
+  const handleDeleteProgram = async (programId) => {
+    if (!confirm('Are you sure you want to delete this training program? This action cannot be undone.')) return;
+    try {
+      const res = await api.training.deleteProgram(programId);
+      setProviderPrograms((prev) => prev.filter((p) => (p.program_id || p.id) !== programId));
+      setActionMessage({ type: 'success', text: res.message || 'Training program deleted successfully.' });
+    } catch (err) {
+      setActionMessage({ type: 'error', text: err.message || 'Failed to delete program.' });
     }
   };
 
@@ -346,9 +361,19 @@ export default function DashboardPage() {
                         <span className="text-on-surface-variant font-medium">
                           {prog.enrolled_count || 0} Candidates Enrolled
                         </span>
-                        <Link href="/training" className="font-semibold text-primary hover:underline">
-                          View Details
-                        </Link>
+                        <div className="flex items-center gap-3">
+                          <Link href="/training" className="font-semibold text-primary hover:underline">
+                            View Details
+                          </Link>
+                          {(prog.created_by === user?.userId || prog.user_id === user?.userId || user?.role === 'admin') && (
+                            <button
+                              onClick={() => handleDeleteProgram(prog.program_id || prog.id)}
+                              className="font-semibold text-error hover:underline text-xs"
+                            >
+                              Delete
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -383,8 +408,17 @@ export default function DashboardPage() {
                       ]).map((item) => (
                         <tr key={item.enrollment_id} className="hover:bg-surface-container-low transition">
                           <td className="py-3.5 px-4">
-                            <div className="font-semibold text-on-surface">{item.full_name || 'Candidate'}</div>
-                            <div className="text-[12px] text-on-surface-variant">{item.woman_email || ''}</div>
+                            <div className="font-semibold text-on-surface">
+                              {item.candidate_name || item.full_name || 'Candidate'}
+                            </div>
+                            <div className="text-[12px] text-on-surface-variant">
+                              {item.email || item.woman_email || ''}
+                            </div>
+                            {(item.phone || item.woman_phone) && (
+                              <div className="text-[11px] text-on-surface-variant/80">
+                                {item.phone || item.woman_phone}
+                              </div>
+                            )}
                           </td>
                           <td className="py-3.5 px-4 max-w-[200px] truncate text-on-surface">
                             {item.program_name}
